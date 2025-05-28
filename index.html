@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Search</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        #search-input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #search-input:focus {
+            border-color: #4CAF50;
+        }
+
+        #search-results {
+            margin-top: 20px;
+        }
+
+        .movie-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.3s;
+        }
+
+        .movie-item:hover {
+            background-color: #f9f9f9;
+        }
+
+        .highlight {
+            background-color: #ffeb3b;
+            padding: 2px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .error {
+            color: #f44336;
+            text-align: center;
+            padding: 10px;
+            display: none;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .stats {
+            text-align: center;
+            color: #666;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+
+            #search-input {
+                font-size: 14px;
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Movie Search</h1>
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="Search for movies...">
+        </div>
+        <div class="loading">Searching...</div>
+        <div class="error">An error occurred. Please try again.</div>
+        <div id="search-results"></div>
+        <div class="stats">
+            <span id="result-count">0</span> results found
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('search-input');
+        const searchResults = document.getElementById('search-results');
+        const loading = document.querySelector('.loading');
+        const error = document.querySelector('.error');
+        const resultCount = document.getElementById('result-count');
+        let searchTimeout;
+
+        // Debounce function to limit API calls
+        function debounce(func, wait) {
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(searchTimeout);
+                    func(...args);
+                };
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(later, wait);
+            };
+        }
+
+        // Highlight matching text
+        function highlightText(text, query) {
+            if (!query) return text;
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        }
+
+        // Search function
+        async function search(query) {
+            if (!query) {
+                searchResults.innerHTML = '';
+                resultCount.textContent = '0';
+                return;
+            }
+
+            loading.classList.add('active');
+            error.classList.remove('active');
+
+            try {
+                const response = await fetch(`http://localhost:4000/api/search?query=${encodeURIComponent(query)}`);
+                const results = await response.json();
+
+                searchResults.innerHTML = '';
+                results.forEach(movie => {
+                    const div = document.createElement('div');
+                    div.className = 'movie-item';
+                    div.innerHTML = highlightText(movie, query);
+                    searchResults.appendChild(div);
+                });
+
+                resultCount.textContent = results.length;
+            } catch (err) {
+                error.classList.add('active');
+                console.error('Search error:', err);
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        // Real-time search with WebSocket
+        const socket = new WebSocket('ws://localhost:4000');
+
+        socket.onmessage = (event) => {
+            const results = JSON.parse(event.data);
+            searchResults.innerHTML = '';
+            results.forEach(movie => {
+                const div = document.createElement('div');
+                div.className = 'movie-item';
+                div.innerHTML = highlightText(movie, searchInput.value);
+                searchResults.appendChild(div);
+            });
+            resultCount.textContent = results.length;
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            error.classList.add('active');
+        };
+
+        // Event listeners
+        searchInput.addEventListener('input', debounce((e) => {
+            const query = e.target.value.trim();
+            search(query);
+            socket.send(JSON.stringify({ query }));
+        }, 300));
+    </script>
+</body>
+</html> 
