@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, minimum-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no, minimal-ui">
+    <title>FlexSearch - Distributed Movie Search</title>
+    <style>
+        :root {
+            --primary-color: #4285f4;
+            --secondary-color: #fbbc05;
+            --accent-color: #34a853;
+            --warning-color: #ea4335;
+            --text-color: #333;
+            --light-text: #707070;
+            --border-color: #e0e0e0;
+            --highlight-color: #e8f0fe;
+            --background-color: #ffffff;
+            --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: #f5f5f5;
+            padding: 0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            padding: 20px;
+            margin: 0 auto;
+        }
+
+        .search-header {
+            background-color: var(--background-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 20px;
+            z-index: 1000;
+        }
+
+        .search-title {
+            font-size: 24px;
+            font-weight: 500;
+            margin-bottom: 20px;
+            color: var(--primary-color);
+            text-align: center;
+        }
+
+        .search-form {
+            position: relative;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .search-input-container {
+            position: relative;
+            width: 100%;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            background-color: transparent;
+            transition: var(--transition);
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+        }
+
+        #autocomplete {
+            color: var(--light-text);
+            background-color: #f9f9f9;
+            pointer-events: none;
+        }
+
+        #select-prev,
+        #select-next {
+            z-index: 0;
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .search-options {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            margin-right: 20px;
+            cursor: pointer;
+        }
+
+        .toggle-checkbox {
+            position: relative;
+            width: 40px;
+            height: 20px;
+            margin-right: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #ccc;
+            border-radius: 20px;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .toggle-checkbox:checked {
+            background: var(--primary-color);
+        }
+
+        .toggle-checkbox:before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            background: #fff;
+            transition: var(--transition);
+        }
+
+        .toggle-checkbox:checked:before {
+            left: 22px;
+        }
+
+        .toggle-label {
+            font-size: 14px;
+            color: var(--light-text);
+        }
+
+        .worker-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .worker-selector label {
+            font-size: 14px;
+            color: var(--light-text);
+        }
+
+        .worker-selector select {
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .search-instructions {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--light-text);
+            text-align: center;
+        }
+
+        .search-instructions kbd {
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+            color: #333;
+            display: inline-block;
+            font-family: monospace;
+            line-height: 1;
+            padding: 2px 4px;
+            white-space: nowrap;
+        }
+
+        /* Status Panel */
+        .status-panel {
+            background-color: var(--background-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 4px;
+        }
+
+        .status-label {
+            font-size: 12px;
+            color: var(--light-text);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .loading-indicator {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .loading-indicator.show {
+            display: flex;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top: 2px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #suggestions {
+            width: 100%;
+            background-color: var(--background-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        #suggestions div {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: var(--transition);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            position: relative;
+        }
+
+        #suggestions div:last-child {
+            border-bottom: none;
+        }
+
+        #suggestions div:hover {
+            background-color: var(--highlight-color);
+        }
+
+        #suggestions div .worker-badge {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: var(--accent-color);
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        #suggestions b {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        #suggestions:empty {
+            padding: 15px;
+            text-align: center;
+            color: var(--light-text);
+        }
+
+        #suggestions:empty:before {
+            content: "Không tìm thấy kết quả phù hợp";
+            font-size: 14px;
+        }
+
+        .search-status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: var(--light-text);
+            text-align: center;
+        }
+
+        .error-message {
+            background-color: #ffeaea;
+            border: 1px solid var(--warning-color);
+            color: var(--warning-color);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        .success-message {
+            background-color: #e8f5e8;
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .search-header {
+                padding: 15px;
+            }
+
+            .search-title {
+                font-size: 20px;
+                margin-bottom: 15px;
+            }
+
+            input[type="text"] {
+                padding: 10px 12px;
+                font-size: 14px;
+            }
+
+            .status-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .search-options {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .worker-selector {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="search-header">
+            <h1 class="search-title">FlexSearch - Tìm kiếm phim phân tán</h1>
+            <div class="search-form">
+                <div class="search-input-container">
+                    <input type="text" id="select-prev" tabindex="1">
+                    <input type="text" id="autocomplete" readonly>
+                    <input type="text" id="userinput" tabindex="2" placeholder="Nhập tên phim để tìm kiếm..." autocorrect="off" spellcheck="false" autocomplete="off" autofocus>
+                    <input type="text" id="select-next" tabindex="3">
+                </div>
+            </div>
+            <div class="search-options">
+                <div style="display: flex; gap: 20px; align-items: center;">
+                    <label class="toggle-container">
+                        <input type="checkbox" id="suggest" class="toggle-checkbox" checked>
+                        <span class="toggle-label">Gợi ý tự động</span>
+                    </label>
+                    <label class="toggle-container">
+                        <input type="checkbox" id="showWorkerInfo" class="toggle-checkbox" checked>
+                        <span class="toggle-label">Hiển thị worker</span>
+                    </label>
+                </div>
+                <div class="worker-selector">
+                    <label for="workerCount">Số Workers:</label>
+                    <select id="workerCount">
+                        <option value="2">2 Workers</option>
+                        <option value="4" selected>4 Workers</option>
+                        <option value="6">6 Workers</option>
+                        <option value="8">8 Workers</option>
+                    </select>
+                </div>
+            </div>
+            <div class="search-instructions">
+                Điều hướng bằng <kbd>↑</kbd> <kbd>↓</kbd> và chọn bằng <kbd>Enter</kbd> hoặc <kbd>→</kbd>
+            </div>
+        </div>
+
+        <!-- Status Panel -->
+        <div class="status-panel">
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-value" id="status-workers">0/0</div>
+                    <div class="status-label">Workers Active</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-data">0</div>
+                    <div class="status-label">Movies Indexed</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-searches">0</div>
+                    <div class="status-label">Total Searches</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-time">0ms</div>
+                    <div class="status-label">Average Time</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-last-search">0ms</div>
+                    <div class="status-label">Last Search</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-system">Initializing...</div>
+                    <div class="status-label">System Status</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div class="loading-indicator" id="loading">
+            <div class="spinner"></div>
+            <span>Đang tìm kiếm...</span>
+        </div>
+        
+        <!-- Results -->
+        <div id="suggestions"></div>
+        
+        <!-- Messages -->
+        <div id="messages"></div>
+        
+        <div class="search-status">
+            Hệ thống tìm kiếm phân tán với FlexSearch - Sử dụng Web Workers để xử lý song song
+        </div>
+    </div>
+
+    <script type="module">
+        import { DistributedSearchManager } from './distributed-search-manager.js';
+        
+        // Import movie data
+        const movieDataResponse = await fetch('./data/movies.js');
+        const movieDataText = await movieDataResponse.text();
+        // Extract array from module.exports format
+        const movieData = eval(movieDataText.replace('module.exports = ', ''));
+
+        // Initialize distributed search manager
+        let searchManager = null;
+        let searchTimeout = null;
+        let results = [];
+        let iterate = 0;
+        let isInitializing = false;
+
+        // DOM elements
+        const suggestions = document.getElementById("suggestions");
+        const autocomplete = document.getElementById("autocomplete");
+        const userinput = document.getElementById("userinput");
+        const suggest = document.getElementById("suggest");
+        const showWorkerInfo = document.getElementById("showWorkerInfo");
+        const workerCount = document.getElementById("workerCount");
+        const select_prev = document.getElementById("select-prev");
+        const select_next = document.getElementById("select-next");
+        const loading = document.getElementById("loading");
+        const messages = document.getElementById("messages");
+
+        // Status elements
+        const statusWorkers = document.getElementById("status-workers");
+        const statusData = document.getElementById("status-data");
+        const statusSearches = document.getElementById("status-searches");
+        const statusTime = document.getElementById("status-time");
+        const statusLastSearch = document.getElementById("status-last-search");
+        const statusSystem = document.getElementById("status-system");
+
+        // Event listeners
+        userinput.addEventListener("input", debounceSearch, true);
+        userinput.addEventListener("keyup", accept_autocomplete, true);
+        userinput.addEventListener("keydown", iterate_selected, true);
+        suggest.addEventListener("change", () => {
+            if (searchManager) {
+                searchManager.index?.cache?.clear?.();
+            }
+            debounceSearch();
+        }, true);
+        suggestions.addEventListener("click", accept_suggestion, true);
+        workerCount.addEventListener("change", reinitializeSystem, true);
+
+        select_prev.addEventListener("focus", function(){
+            iterate_selected({ key: "ArrowUp" });
+            userinput.focus();
+        }, true);
+
+        select_next.addEventListener("focus", function(){
+            iterate_selected({ key: "ArrowDown" });
+            userinput.focus();
+        }, true);
+
+        // Initialize system
+        async function initializeSystem() {
+            if (isInitializing) return;
+            
+            isInitializing = true;
+            updateStatus();
+            
+            try {
+                if (searchManager) {
+                    searchManager.destroy();
+                }
+
+                const selectedWorkerCount = parseInt(workerCount.value);
+                searchManager = new DistributedSearchManager({
+                    workerCount: selectedWorkerCount,
+                    searchTimeout: 5000
+                });
+
+                showMessage('Đang khởi tạo hệ thống phân tán...', 'info');
+                
+                await searchManager.initialize(movieData);
+                
+                showMessage(`Hệ thống đã sẵn sàng với ${selectedWorkerCount} workers!`, 'success');
+                updateStatus();
+                
+            } catch (error) {
+                console.error('Initialization failed:', error);
+                showMessage(`Lỗi khởi tạo: ${error.message}`, 'error');
+                updateStatus();
+            } finally {
+                isInitializing = false;
+            }
+        }
+
+        // Reinitialize system when worker count changes
+        async function reinitializeSystem() {
+            await initializeSystem();
+        }
+
+        // Debounced search
+        function debounceSearch() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(performSearch, 300);
+        }
+
+        // Perform distributed search
+        async function performSearch() {
+            const query = userinput.value.trim();
+            
+            if (!query) {
+                suggestions.innerHTML = "";
+                return;
+            }
+
+            if (!searchManager || !searchManager.isInitialized) {
+                showMessage('Hệ thống chưa sẵn sàng, đang khởi tạo...', 'info');
+                await initializeSystem();
+                return;
+            }
+
+            try {
+                loading.classList.add('show');
+                
+                const searchOptions = {
+                    suggest: suggest.checked,
+                    limit: 25,
+                    highlight: "<b>$1</b>",
+                    query: query
+                };
+
+                const searchResult = await searchManager.search(query, searchOptions);
+                
+                displayResults(searchResult);
+                updateStatus(searchResult);
+                
+            } catch (error) {
+                console.error('Search failed:', error);
+                showMessage(`Lỗi tìm kiếm: ${error.message}`, 'error');
+                suggestions.innerHTML = "";
+            } finally {
+                loading.classList.remove('show');
+            }
+        }
+
+        // Display search results
+        function displayResults(searchResult) {
+            results = searchResult.results;
+            
+            let entry, childs = suggestions.childNodes;
+            let i = 0, len = results.length;
+
+            for(; i < len; i++){
+                entry = childs[i];
+
+                if(!entry){
+                    entry = document.createElement("div");
+                    suggestions.appendChild(entry);
+                }
+
+                const result = results[i];
+                entry.innerHTML = result.highlight;
+                
+                if (showWorkerInfo.checked && result.fromWorker) {
+                    entry.innerHTML += `<span class="worker-badge">${result.fromWorker}</span>`;
+                }
+            }
+
+            while(childs.length > len){
+                suggestions.removeChild(childs[i]);
+            }
+
+            select_result(0);
+            iterate_selected();
+        }
+
+        // Update status display
+        function updateStatus(searchResult = null) {
+            if (searchManager) {
+                const stats = searchManager.getStats();
+                statusWorkers.textContent = `${stats.workerCount}/${stats.workerCount}`;
+                statusData.textContent = stats.dataSize.toLocaleString();
+                statusSearches.textContent = stats.totalSearches;
+                statusTime.textContent = `${stats.averageSearchTime.toFixed(1)}ms`;
+                
+                if (searchResult) {
+                    statusLastSearch.textContent = `${searchResult.totalTime.toFixed(1)}ms`;
+                }
+                
+                if (stats.isInitialized) {
+                    statusSystem.textContent = "Ready";
+                    statusSystem.style.color = "var(--accent-color)";
+                } else {
+                    statusSystem.textContent = isInitializing ? "Initializing..." : "Not Ready";
+                    statusSystem.style.color = isInitializing ? "var(--secondary-color)" : "var(--warning-color)";
+                }
+            } else {
+                statusWorkers.textContent = "0/0";
+                statusData.textContent = "0";
+                statusSearches.textContent = "0";
+                statusTime.textContent = "0ms";
+                statusLastSearch.textContent = "0ms";
+                statusSystem.textContent = "Not Initialized";
+                statusSystem.style.color = "var(--warning-color)";
+            }
+        }
+
+        // Show message
+        function showMessage(text, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type === 'error' ? 'error-message' : 'success-message';
+            messageDiv.textContent = text;
+            
+            messages.innerHTML = '';
+            messages.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messages.innerHTML = '';
+            }, 5000);
+        }
+
+        // Navigation functions (same as original)
+        function iterate_selected(event){
+            let index = iterate;
+
+            if(event){
+                const key = event.key;
+                if(key === "ArrowUp"){
+                    if(iterate > 0){
+                        select_result(--index);
+                    }
+                    event.preventDefault &&
+                    event.preventDefault();
+                }
+                else if(key === "ArrowDown"){
+                    if(iterate < results.length){
+                        select_result(++index);
+                    }
+                    event.preventDefault &&
+                    event.preventDefault();
+                }
+            }
+
+            let value = userinput.value;
+            let first_result = results && results[index] && (results[index].originalTitle || results[index].title);
+            let match = first_result && first_result.toLowerCase().indexOf(value.toLowerCase());
+
+            if(first_result && (match > -1)){
+                autocomplete.value = value + first_result.substring(match + value.length);
+                autocomplete.current = first_result;
+            }
+            else{
+                autocomplete.value = autocomplete.current = value;
+            }
+        }
+
+        function select_result(index){
+            let node = suggestions.childNodes[iterate];
+            node && (node.style.backgroundColor = "");
+
+            iterate = index;
+
+            node = suggestions.childNodes[iterate];
+            node && (node.style.backgroundColor = "var(--highlight-color)");
+        }
+
+        function accept_autocomplete(event){
+            const key = (event || window.event).keyCode;
+
+            if(key === 13 || key === 39) {
+                const node = suggestions.childNodes[iterate];
+                if(!node) return;
+                userinput.value = autocomplete.value = node.textContent.replace(/worker-\d+/g, '').trim();
+                suggestions.textContent = "";
+            }
+        }
+
+        function accept_suggestion(event){
+            const target = (event || window.event).target;
+            userinput.value = autocomplete.value = target.textContent.replace(/worker-\d+/g, '').trim();
+            suggestions.textContent = "";
+
+            return false;
+        }
+
+        // Initialize system on load
+        initializeSystem();
+        
+        // Update status every second
+        setInterval(updateStatus, 1000);
+    </script>
+</body>
+</html> 

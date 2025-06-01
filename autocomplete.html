@@ -3,374 +3,358 @@
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, minimum-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no, minimal-ui">
-    <title>Movie Search</title>
+    <title>FlexSearch - Distributed Movie Search</title>
     <style>
+        :root {
+            --primary-color: #4285f4;
+            --secondary-color: #fbbc05;
+            --text-color: #333;
+            --light-text: #707070;
+            --border-color: #e0e0e0;
+            --highlight-color: #e8f0fe;
+            --background-color: #ffffff;
+            --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: #f8f9fa;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            font-size: 16px;
             line-height: 1.6;
+            color: var(--text-color);
+            background-color: #f5f5f5;
+            padding: 0;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .container {
-            max-width: 700px;
+            width: 100%;
+            max-width: 800px;
+            padding: 20px;
             margin: 0 auto;
-            background: white;
+        }
+
+        .search-header {
+            background-color: var(--background-color);
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 20px;
+            z-index: 1000;
         }
 
-        .header {
-            background: #fff;
-            padding: 30px;
-            text-align: center;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .header h1 {
-            font-size: 2rem;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 8px;
-        }
-
-        .header p {
-            color: #666;
-            font-size: 1rem;
-        }
-
-        .search-section {
-            padding: 30px;
-        }
-
-        .search-container {
-            position: relative;
+        .search-title {
+            font-size: 24px;
+            font-weight: 500;
             margin-bottom: 20px;
+            color: var(--primary-color);
+            text-align: center;
         }
 
-        .search-wrapper {
+        .search-form {
             position: relative;
-            background: white;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            transition: border-color 0.2s ease;
+            width: 100%;
+            margin-bottom: 10px;
         }
 
-        .search-wrapper:focus-within {
-            border-color: #007bff;
+        .search-input-container {
+            position: relative;
+            width: 100%;
         }
 
         input[type="text"] {
-            border: none;
-            outline: none;
-            background: transparent;
-            font-size: 1rem;
-            padding: 15px;
             width: 100%;
-            color: #333;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            background-color: transparent;
+            transition: var(--transition);
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
         }
 
         #autocomplete {
-            position: absolute;
-            top: 0;
-            left: 15px;
-            right: 15px;
-            color: #ccc;
+            color: var(--light-text);
+            background-color: #f9f9f9;
             pointer-events: none;
-            z-index: 1;
-            padding: 15px 0;
         }
 
-        #userinput {
-            position: relative;
-            z-index: 2;
-            background: transparent;
+        #select-prev,
+        #select-next {
+            z-index: 0;
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
         }
 
-        #select-prev, #select-next {
-            display: none;
-        }
-
-        .controls {
+        .search-options {
             display: flex;
-            justify-content: center;
-            margin-bottom: 20px;
+            align-items: center;
+            margin-top: 10px;
         }
 
         .toggle-container {
             display: flex;
             align-items: center;
-            gap: 8px;
-        }
-
-        .toggle-container input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-        }
-
-        .toggle-container label {
-            color: #666;
-            font-size: 0.9rem;
+            margin-right: 20px;
             cursor: pointer;
         }
 
-        #suggestions {
-            background: white;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            overflow: hidden;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        #suggestions::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        #suggestions::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-
-        #suggestions::-webkit-scrollbar-thumb {
+        .toggle-checkbox {
+            position: relative;
+            width: 40px;
+            height: 20px;
+            margin-right: 8px;
+            -webkit-appearance: none;
+            appearance: none;
             background: #ccc;
+            border-radius: 20px;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .toggle-checkbox:checked {
+            background: var(--primary-color);
+        }
+
+        .toggle-checkbox:before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            background: #fff;
+            transition: var(--transition);
+        }
+
+        .toggle-checkbox:checked:before {
+            left: 22px;
+        }
+
+        .toggle-label {
+            font-size: 14px;
+            color: var(--light-text);
+        }
+
+        .search-instructions {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--light-text);
+            text-align: center;
+        }
+
+        .search-instructions kbd {
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
             border-radius: 3px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+            color: #333;
+            display: inline-block;
+            font-family: monospace;
+            line-height: 1;
+            padding: 2px 4px;
+            white-space: nowrap;
+        }
+
+        #suggestions {
+            width: 100%;
+            background-color: var(--background-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            margin-top: 10px;
         }
 
         #suggestions div {
             padding: 12px 15px;
-            border-bottom: 1px solid #f8f9fa;
+            border-bottom: 1px solid var(--border-color);
             cursor: pointer;
-            transition: background-color 0.15s ease;
-            color: #333;
-        }
-
-        #suggestions div:hover {
-            background-color: #f8f9fa;
+            transition: var(--transition);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
 
         #suggestions div:last-child {
             border-bottom: none;
         }
 
+        #suggestions div:hover {
+            background-color: var(--highlight-color);
+        }
+
         #suggestions b {
-            color: #007bff;
+            color: var(--primary-color);
             font-weight: 600;
         }
 
+        #suggestions:empty {
+            padding: 15px;
+            text-align: center;
+            color: var(--light-text);
+        }
+
         #suggestions:empty:before {
-            content: "Start typing to search for movies...";
-            display: block;
-            text-align: center;
-            padding: 40px 20px;
-            color: #999;
-            font-style: italic;
+            content: "Không tìm thấy kết quả phù hợp";
+            font-size: 14px;
         }
 
-        .stats {
-            text-align: center;
+        .search-status {
             margin-top: 15px;
-            color: #666;
-            font-size: 0.9rem;
-        }
-
-        .footer {
-            background: #f8f9fa;
-            padding: 20px;
+            font-size: 14px;
+            color: var(--light-text);
             text-align: center;
-            color: #666;
-            font-size: 0.85rem;
-            border-top: 1px solid #e9ecef;
         }
 
         @media (max-width: 768px) {
             .container {
-                margin: 10px;
-                border-radius: 6px;
+                padding: 15px;
             }
 
-            .header {
-                padding: 20px;
+            .search-header {
+                padding: 15px;
             }
 
-            .header h1 {
-                font-size: 1.5rem;
-            }
-
-            .search-section {
-                padding: 20px;
+            .search-title {
+                font-size: 20px;
+                margin-bottom: 15px;
             }
 
             input[type="text"] {
-                font-size: 16px; /* Prevent zoom on iOS */
-                padding: 12px;
+                padding: 10px 12px;
+                font-size: 14px;
             }
-
-            #autocomplete {
-                left: 12px;
-                right: 12px;
-                padding: 12px 0;
-            }
-        }
-
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            display: none;
-        }
-
-        .loading.active {
-            display: block;
-        }
-
-        /* Selected item style */
-        .selected {
-            background-color: #007bff !important;
-            color: white !important;
-        }
-
-        .selected b {
-            color: white !important;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>Movie Search</h1>
-            <p>Search through thousands of movies</p>
-        </div>
-
-        <div class="search-section">
-            <div class="search-container">
-                <div class="search-wrapper">
+        <div class="search-header">
+            <h1 class="search-title">FlexSearch - Tìm kiếm phim</h1>
+            <div class="search-form">
+                <div class="search-input-container">
                     <input type="text" id="select-prev" tabindex="1">
                     <input type="text" id="autocomplete" readonly>
-                    <input type="text" id="userinput" tabindex="2" placeholder="Search by movie title..." autocorrect="off" spellcheck="false" autocomplete="off" autofocus>
+                    <input type="text" id="userinput" tabindex="2" placeholder="Nhập tên phim để tìm kiếm..." autocorrect="off" spellcheck="false" autocomplete="off" autofocus>
                     <input type="text" id="select-next" tabindex="3">
                 </div>
             </div>
-
-            <div class="controls">
-                <div class="toggle-container">
-                    <input type="checkbox" id="suggest" checked>
-                    <label for="suggest">Enable suggestions</label>
-                </div>
+            <div class="search-options">
+                <label class="toggle-container">
+                    <input type="checkbox" id="suggest" class="toggle-checkbox" checked>
+                    <span class="toggle-label">Gợi ý tự động</span>
+                </label>
             </div>
-
-            <div class="loading">Searching...</div>
-            
-            <div id="suggestions"></div>
-            
-            <div class="stats" id="stats">
-                Ready to search
+            <div class="search-instructions">
+                Điều hướng bằng <kbd>↑</kbd> <kbd>↓</kbd> và chọn bằng <kbd>Enter</kbd> hoặc <kbd>→</kbd>
             </div>
         </div>
-
-        <div class="footer">
-            <p>Built with FlexSearch</p>
+        
+        <div id="suggestions"></div>
+        
+        <div class="search-status">
+            Tìm kiếm phân tán với FlexSearch
         </div>
     </div>
 
-<script type="module">
-    // Features:
-    // 1. Instant Search
-    // 2. Auto-Complete
-    // 3. Suggestions
-    // 4. Query Cache
-    // 5. Result Highlighting
-    // 6. Tokenizer
-    // 7. Encoder
-    // 8. Document Index (Field-Search)
-    // 9. Keyboard Navigation
+    <script type="module">
+        // Features:
+        // 1. Instant Search
+        // 2. Auto-Complete
+        // 3. Suggestions
+        // 4. Query Cache
+        // 5. Result Highlighting
+        // 6. Tokenizer
+        // 7. Encoder
+        // 8. Document Index (Field-Search)
+        // 9. Keyboard Navigation
 
-    import { Document } from "https://cdn.jsdelivr.net/gh/nextapps-de/flexsearch@master/dist/flexsearch.compact.module.min.js";
-    import data from "https://cdn.jsdelivr.net/gh/nextapps-de/flexsearch@master/demo/data/movies.js";
+        import { Document } from "https://cdn.jsdelivr.net/gh/nextapps-de/flexsearch@master/dist/flexsearch.compact.module.min.js";
+        import data from "https://cdn.jsdelivr.net/gh/nextapps-de/flexsearch@master/demo/data/movies.js";
 
-    // for "Result Highlighting" it requires the usage of a Document Index
-    // also when just adding id-content-pairs to a single index
-    const index = new Document({
-        document: {
-            // storing documents is required in this example
-            store: true,
-            index: [{
-                field: "title",
-                // important: a forward tokenizer is minimum
-                // required by an instant search
-                tokenize: "forward"
-            }]
-        }
-    });
-
-    // The movies.js data used in this example is an array of strings.
-    // Since result highlighting needs a Document Index, the data
-    // has to be simply upgraded to a pseudo document.
-
-    for(let i = 0; i < data.length; i++){
-        // pass a json-like object
-        index.add(i, {
-            "title": data[i]
+        // for "Result Highlighting" it requires the usage of a Document Index
+        // also when just adding id-content-pairs to a single index
+        const index = new Document({
+            document: {
+                // storing documents is required in this example
+                store: true,
+                index: [{
+                    field: "title",
+                    // important: a forward tokenizer is minimum
+                    // required by an instant search
+                    tokenize: "forward"
+                }]
+            }
         });
-    }
 
-    const suggestions = document.getElementById("suggestions");
-    const autocomplete = document.getElementById("autocomplete");
-    const userinput = document.getElementById("userinput");
-    const suggest = document.getElementById("suggest");
-    const select_prev = document.getElementById("select-prev");
-    const select_next = document.getElementById("select-next");
-    const stats = document.getElementById("stats");
-    const loading = document.querySelector(".loading");
-    let results = [];
-    let iterate = 0;
+        // The movies.js data used in this example is an array of strings.
+        // Since result highlighting needs a Document Index, the data
+        // has to be simply upgraded to a pseudo document.
 
-    userinput.addEventListener("input", show_results, true);
-    userinput.addEventListener("keyup", accept_autocomplete, true);
-    userinput.addEventListener("keydown", iterate_selected, true);
-    suggest.addEventListener("change", toggle_suggest, true);
-    suggestions.addEventListener("click", accept_suggestion, true);
-
-    select_prev.addEventListener("focus", function(){
-        iterate_selected({ key: "ArrowUp" });
-        userinput.focus();
-    }, true);
-
-    select_next.addEventListener("focus", function(){
-        iterate_selected({ key: "ArrowDown" });
-        userinput.focus();
-    }, true);
-
-    function toggle_suggest(){
-        // changing any of the search options requires
-        // deletion of cached results (when using cache)
-        index.cache.clear();
-        show_results();
-    }
-
-    function show_results(){
-        const query = userinput.value.trim();
-        
-        if (!query) {
-            suggestions.innerHTML = '';
-            stats.textContent = 'Ready to search';
-            return;
+        for(let i = 0; i < data.length; i++){
+            // pass a json-like object
+            index.add(i, {
+                "title": data[i]
+            });
         }
 
-        loading.classList.add('active');
+        const suggestions = document.getElementById("suggestions");
+        const autocomplete = document.getElementById("autocomplete");
+        const userinput = document.getElementById("userinput");
+        const suggest = document.getElementById("suggest");
+        const select_prev = document.getElementById("select-prev");
+        const select_next = document.getElementById("select-next");
+        let results = [];
+        let iterate = 0;
 
-        // Small delay for better UX
-        setTimeout(() => {
+        userinput.addEventListener("input", show_results, true);
+        userinput.addEventListener("keyup", accept_autocomplete, true);
+        userinput.addEventListener("keydown", iterate_selected, true);
+        suggest.addEventListener("change", toggle_suggest, true);
+        suggestions.addEventListener("click", accept_suggestion, true);
+
+        select_prev.addEventListener("focus", function(){
+            iterate_selected({ key: "ArrowUp" });
+            userinput.focus();
+        }, true);
+
+        select_next.addEventListener("focus", function(){
+            iterate_selected({ key: "ArrowDown" });
+            userinput.focus();
+        }, true);
+
+        function toggle_suggest(){
+            // changing any of the search options requires
+            // deletion of cached results (when using cache)
+            index.cache.clear();
+            show_results();
+        }
+
+        function show_results(){
             // the cache is a perfect addition
             // for an instant search on keypress
+
             results = index.searchCache({
-                query: query,
+                query: userinput.value,
                 suggest: suggest.checked,
                 limit: 25,
                 pluck: "title",
@@ -390,94 +374,78 @@
                 }
 
                 entry.innerHTML = results[i].highlight;
-                entry.classList.remove('selected');
             }
 
             while(childs.length > len){
                 suggestions.removeChild(childs[i]);
             }
 
-            // Update stats
-            stats.textContent = `Found ${len} result${len !== 1 ? 's' : ''}`;
-
             select_result(0);
             iterate_selected();
-            loading.classList.remove('active');
-        }, 50);
-    }
+        }
 
-    function iterate_selected(event){
-        let index = iterate;
+        function iterate_selected(event){
+            let index = iterate;
 
-        if(event){
-            const key = event.key;
-            if(key === "ArrowUp"){
-                if(iterate > 0){
-                    select_result(--index);
+            if(event){
+                const key = event.key;
+                if(key === "ArrowUp"){
+                    if(iterate > 0){
+                        select_result(--index);
+                    }
+                    event.preventDefault &&
+                    event.preventDefault();
                 }
-                event.preventDefault &&
-                event.preventDefault();
-            }
-            else if(key === "ArrowDown"){
-                if(iterate < results.length){
-                    select_result(++index);
+                else if(key === "ArrowDown"){
+                    if(iterate < results.length){
+                        select_result(++index);
+                    }
+                    event.preventDefault &&
+                    event.preventDefault();
                 }
-                event.preventDefault &&
-                event.preventDefault();
+            }
+
+            let value = userinput.value;
+            let first_result = results && results[index] && data[results[index].id];
+            let match = first_result && first_result.toLowerCase().indexOf(value.toLowerCase());
+
+            if(first_result && (match > -1)){
+                autocomplete.value = value + first_result.substring(match + value.length);
+                autocomplete.current = first_result;
+            }
+            else{
+                autocomplete.value = autocomplete.current = value;
             }
         }
 
-        let value = userinput.value;
-        let first_result = results && results[index] && data[results[index].id];
-        let match = first_result && first_result.toLowerCase().indexOf(value.toLowerCase());
+        function select_result(index){
+            let node = suggestions.childNodes[iterate];
+            node && (node.style.backgroundColor = "");
 
-        if(first_result && (match > -1)){
-            autocomplete.value = value + first_result.substring(match + value.length);
-            autocomplete.current = first_result;
-        }
-        else{
-            autocomplete.value = autocomplete.current = value;
-        }
-    }
+            iterate = index;
 
-    function select_result(index){
-        // Remove previous selection
-        const prevNode = suggestions.childNodes[iterate];
-        if (prevNode) {
-            prevNode.classList.remove('selected');
+            node = suggestions.childNodes[iterate];
+            node && (node.style.backgroundColor = "var(--highlight-color)");
         }
 
-        iterate = index;
+        function accept_autocomplete(event){
+            const key = (event || window.event).keyCode;
 
-        // Add selection to current item
-        const node = suggestions.childNodes[iterate];
-        if (node) {
-            node.classList.add('selected');
+            if(key === 13 || key === 39) {
+                const node = suggestions.childNodes[iterate];
+                if(!node) return;
+                userinput.value = autocomplete.value = node.textContent;
+                suggestions.textContent = "";
+            }
         }
-    }
 
-    function accept_autocomplete(event){
-        const key = (event || window.event).keyCode;
-
-        if(key === 13 || key === 39) {
-            const node = suggestions.childNodes[iterate];
-            if(!node) return;
-            userinput.value = autocomplete.value = node.textContent;
+        function accept_suggestion(event){
+            const target = (event || window.event).target;
+            userinput.value = autocomplete.value = target.textContent;
             suggestions.textContent = "";
-            stats.textContent = `Selected: "${node.textContent}"`;
+
+            return false;
         }
-    }
-
-    function accept_suggestion(event){
-        const target = (event || window.event).target;
-        userinput.value = autocomplete.value = target.textContent;
-        suggestions.textContent = "";
-        stats.textContent = `Selected: "${target.textContent}"`;
-        return false;
-    }
-
-    // Initialize stats
-    stats.textContent = `Ready to search through ${data.length.toLocaleString()} movies`;
-</script>
+    </script>
 </body>
 </html>
