@@ -161,7 +161,79 @@
         }
 
         .worker-selector {
-            display: none; /* Hide since we're using backend nodes */
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .worker-selector label {
+            font-size: 14px;
+            color: var(--light-text);
+            font-weight: 500;
+        }
+
+        .worker-selector select {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .worker-selector select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+        }
+
+        .worker-selector .update-btn {
+            padding: 6px 12px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-weight: 500;
+        }
+
+        .worker-selector .update-btn:hover {
+            background-color: #3367d6;
+        }
+
+        .worker-selector .update-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .node-management-status {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .node-management-status.success {
+            background-color: #e8f5e8;
+            color: var(--accent-color);
+            border: 1px solid var(--accent-color);
+        }
+
+        .node-management-status.error {
+            background-color: #ffeaea;
+            color: var(--warning-color);
+            border: 1px solid var(--warning-color);
+        }
+
+        .node-management-status.loading {
+            background-color: #e8f0fe;
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
         }
 
         .search-instructions {
@@ -380,7 +452,21 @@
                         <span class="toggle-label">Hiển thị node</span>
                     </label>
                 </div>
+                <div class="worker-selector">
+                    <label for="nodeCount">Số Search Nodes:</label>
+                    <select id="nodeCount">
+                        <option value="0">0 Nodes</option>
+                        <option value="1">1 Node</option>
+                        <option value="2" selected>2 Nodes</option>
+                        <option value="3">3 Nodes</option>
+                        <option value="4">4 Nodes</option>
+                        <option value="6">6 Nodes</option>
+                        <option value="8">8 Nodes</option>
+                    </select>
+                    <button id="updateNodesBtn" class="update-btn">Cập nhật</button>
+                </div>
             </div>
+            <div id="nodeManagementStatus" class="node-management-status" style="display: none;"></div>
             <div class="search-instructions">
                 Điều hướng bằng <kbd>↑</kbd> <kbd>↓</kbd> và chọn bằng <kbd>Enter</kbd> hoặc <kbd>→</kbd>
             </div>
@@ -398,16 +484,8 @@
                     <div class="status-label">Songs Indexed</div>
                 </div>
                 <div class="status-item">
-                    <div class="status-value" id="status-searches">0</div>
-                    <div class="status-label">Total Searches</div>
-                </div>
-                <div class="status-item">
                     <div class="status-value" id="status-time">0ms</div>
                     <div class="status-label">Average Time</div>
-                </div>
-                <div class="status-item">
-                    <div class="status-value" id="status-last-search">0ms</div>
-                    <div class="status-label">Last Search</div>
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-system">Connecting...</div>
@@ -443,6 +521,7 @@
         let iterate = 0;
         let systemStats = null;
         let isSystemReady = false;
+        let isUpdatingNodes = false;
 
         // DOM elements
         const suggestions = document.getElementById("suggestions");
@@ -450,6 +529,9 @@
         const userinput = document.getElementById("userinput");
         const suggest = document.getElementById("suggest");
         const showNodeInfo = document.getElementById("showNodeInfo");
+        const nodeCount = document.getElementById("nodeCount");
+        const updateNodesBtn = document.getElementById("updateNodesBtn");
+        const nodeManagementStatus = document.getElementById("nodeManagementStatus");
         const select_prev = document.getElementById("select-prev");
         const select_next = document.getElementById("select-next");
         const loading = document.getElementById("loading");
@@ -458,9 +540,7 @@
         // Status elements
         const statusNodes = document.getElementById("status-nodes");
         const statusData = document.getElementById("status-data");
-        const statusSearches = document.getElementById("status-searches");
         const statusTime = document.getElementById("status-time");
-        const statusLastSearch = document.getElementById("status-last-search");
         const statusSystem = document.getElementById("status-system");
 
         // Event listeners
@@ -469,6 +549,7 @@
         userinput.addEventListener("keydown", iterate_selected, true);
         suggest.addEventListener("change", debounceSearch, true);
         suggestions.addEventListener("click", accept_suggestion, true);
+        updateNodesBtn.addEventListener("click", updateNodeCount, true);
 
         select_prev.addEventListener("focus", function(){
             iterate_selected({ key: "ArrowUp" });
@@ -622,15 +703,16 @@
 
         function updateStatusDisplay(searchResult = null) {
             if (systemStats) {
+                // Update basic stats
                 statusNodes.textContent = `${systemStats.healthyNodes}/${systemStats.totalNodes}`;
                 statusData.textContent = systemStats.totalDataSize?.toLocaleString() || '0';
-                statusSearches.textContent = systemStats.totalRequests || '0';
                 statusTime.textContent = `${(systemStats.averageResponseTime || 0).toFixed(1)}ms`;
                 
                 if (searchResult) {
-                    statusLastSearch.textContent = `${(searchResult.totalTime || 0).toFixed(1)}ms`;
+                    statusTime.textContent = `${(searchResult.totalTime || 0).toFixed(1)}ms`;
                 }
                 
+                // Update system status
                 if (isSystemReady && systemStats.healthyNodes > 0) {
                     statusSystem.textContent = "Ready";
                     statusSystem.style.color = "var(--accent-color)";
@@ -641,12 +723,25 @@
                     statusSystem.textContent = "Connecting...";
                     statusSystem.style.color = "var(--secondary-color)";
                 }
+                
+                // Update node count selector based on target count
+                if (systemStats.targetNodeCount !== undefined) {
+                    const currentSelected = parseInt(nodeCount.value);
+                    if (currentSelected !== systemStats.targetNodeCount && !isUpdatingNodes) {
+                        nodeCount.value = systemStats.targetNodeCount;
+                    }
+                }
+                
+                // Show managed nodes info in console for debugging
+                if (systemStats.managedNodes) {
+                    const managedCount = Object.keys(systemStats.managedNodes).length;
+                    console.log(`Managed nodes: ${managedCount}, Registered nodes: ${systemStats.totalNodes}`);
+                }
+                
             } else {
                 statusNodes.textContent = "0/0";
                 statusData.textContent = "0";
-                statusSearches.textContent = "0";
                 statusTime.textContent = "0ms";
-                statusLastSearch.textContent = "0ms";
                 statusSystem.textContent = "Disconnected";
                 statusSystem.style.color = "var(--warning-color)";
             }
@@ -745,6 +840,74 @@
         
         // Update status every 3 seconds
         setInterval(fetchSystemStatus, 3000);
+
+        // Node Management Functions
+        async function updateNodeCount() {
+            if (isUpdatingNodes) return;
+            
+            try {
+                isUpdatingNodes = true;
+                updateNodesBtn.disabled = true;
+                updateNodesBtn.textContent = 'Đang cập nhật...';
+                
+                const selectedCount = parseInt(nodeCount.value);
+                showNodeManagementStatus('Đang cập nhật số lượng nodes...', 'loading');
+                
+                const response = await fetch(`${COORDINATOR_BASE_URL}/api/nodes/update-count`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        nodeCount: selectedCount
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNodeManagementStatus(
+                        `✅ ${result.message}`, 
+                        'success'
+                    );
+                    
+                    // Refresh system status
+                    await fetchSystemStatus();
+                } else {
+                    throw new Error(result.error || 'Update failed');
+                }
+                
+            } catch (error) {
+                console.error('Failed to update node count:', error);
+                showNodeManagementStatus(
+                    `❌ Lỗi: ${error.message}`, 
+                    'error'
+                );
+            } finally {
+                isUpdatingNodes = false;
+                updateNodesBtn.disabled = false;
+                updateNodesBtn.textContent = 'Cập nhật';
+                
+                // Hide status after 5 seconds
+                setTimeout(() => {
+                    hideNodeManagementStatus();
+                }, 5000);
+            }
+        }
+
+        function showNodeManagementStatus(message, type) {
+            nodeManagementStatus.textContent = message;
+            nodeManagementStatus.className = `node-management-status ${type}`;
+            nodeManagementStatus.style.display = 'block';
+        }
+
+        function hideNodeManagementStatus() {
+            nodeManagementStatus.style.display = 'none';
+        }
     </script>
 </body>
 </html> 

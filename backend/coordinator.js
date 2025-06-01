@@ -1,9 +1,10 @@
-// coordinator.js - Distributed Search Coordinator với MySQL
+// coordinator.js - Distributed Search Coordinator với MySQL và Node Management
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const axios = require('axios');
 const cors = require('cors');
+const { spawn } = require('child_process');
 const { databaseManager } = require('./database');
 
 const app = express();
@@ -23,6 +24,11 @@ class DistributedSearchCoordinator {
             averageResponseTime: 0,
             requestHistory: []
         };
+        
+        // Node management
+        this.managedNodes = new Map(); // Map of spawned node processes
+        this.targetNodeCount = 0; // Desired number of nodes
+        this.basePort = 3001; // Starting port for spawned nodes
         
         console.log('🌐 Distributed Search Coordinator starting...');
     }
@@ -50,6 +56,158 @@ class DistributedSearchCoordinator {
             this.totalDataSize = 0;
             throw error;
         }
+    }
+    
+    // Spawn một search node mới
+    async spawnSearchNode(nodeId, port) {
+        try {
+            console.log(`🚀 Spawning search node: ${nodeId} on port ${port}`);
+            
+            const nodeProcess = spawn('node', ['node.js', nodeId, port.toString()], {
+                cwd: __dirname,
+                stdio: ['ignore', 'pipe', 'pipe'],
+                env: {
+                    ...process.env,
+                    PORT: port.toString(),
+                    NODE_ID: nodeId
+                }
+            });
+            
+            // Log node output
+            nodeProcess.stdout.on('data', (data) => {
+                console.log(`[${nodeId}] ${data.toString().trim()}`);
+            });
+            
+            nodeProcess.stderr.on('data', (data) => {
+                console.error(`[${nodeId}] ERROR: ${data.toString().trim()}`);
+            });
+            
+            nodeProcess.on('close', (code) => {
+                console.log(`📴 Node ${nodeId} exited with code ${code}`);
+                this.managedNodes.delete(nodeId);
+                
+                // Remove from active nodes if it was registered
+                if (this.nodes.has(nodeId)) {
+                    this.nodes.delete(nodeId);
+                    this.redistributeData();
+                }
+            });
+            
+            nodeProcess.on('error', (error) => {
+                console.error(`❌ Failed to spawn node ${nodeId}:`, error.message);
+                this.managedNodes.delete(nodeId);
+            });
+            
+            // Store process reference
+            this.managedNodes.set(nodeId, {
+                process: nodeProcess,
+                port: port,
+                startTime: Date.now(),
+                status: 'starting'
+            });
+            
+            return true;
+        } catch (error) {
+            console.error(`❌ Error spawning node ${nodeId}:`, error.message);
+            return false;
+        }
+    }
+    
+    // Kill một search node
+    async killSearchNode(nodeId) {
+        try {
+            const nodeInfo = this.managedNodes.get(nodeId);
+            if (!nodeInfo) {
+                console.log(`⚠️ Node ${nodeId} not found in managed nodes`);
+                return false;
+            }
+            
+            console.log(`🛑 Killing search node: ${nodeId}`);
+            
+            // Kill the process
+            nodeInfo.process.kill('SIGTERM');
+            
+            // Wait a bit then force kill if still alive
+            setTimeout(() => {
+                if (!nodeInfo.process.killed) {
+                    console.log(`🔪 Force killing node ${nodeId}`);
+                    nodeInfo.process.kill('SIGKILL');
+                }
+            }, 5000);
+            
+            return true;
+        } catch (error) {
+            console.error(`❌ Error killing node ${nodeId}:`, error.message);
+            return false;
+        }
+    }
+    
+    // Cập nhật số lượng nodes mong muốn
+    async updateNodeCount(targetCount) {
+        try {
+            const currentCount = this.managedNodes.size;
+            console.log(`🔄 Updating node count: ${currentCount} → ${targetCount}`);
+            
+            this.targetNodeCount = targetCount;
+            
+            if (targetCount > currentCount) {
+                // Spawn thêm nodes
+                const nodesToSpawn = targetCount - currentCount;
+                console.log(`➕ Spawning ${nodesToSpawn} new nodes...`);
+                
+                for (let i = 0; i < nodesToSpawn; i++) {
+                    const nodeIndex = currentCount + i + 1;
+                    const nodeId = `search-node-${nodeIndex}`;
+                    const port = this.basePort + currentCount + i;
+                    
+                    await this.spawnSearchNode(nodeId, port);
+                    
+                    // Small delay between spawns
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            } else if (targetCount < currentCount) {
+                // Kill excess nodes
+                const nodesToKill = currentCount - targetCount;
+                console.log(`➖ Killing ${nodesToKill} excess nodes...`);
+                
+                const nodeIds = Array.from(this.managedNodes.keys());
+                const nodesKeep = nodeIds.slice(0, targetCount);
+                const nodesKill = nodeIds.slice(targetCount);
+                
+                for (const nodeId of nodesKill) {
+                    await this.killSearchNode(nodeId);
+                }
+            }
+            
+            return {
+                success: true,
+                message: `Node count updated to ${targetCount}`,
+                currentCount: this.managedNodes.size,
+                targetCount: targetCount
+            };
+        } catch (error) {
+            console.error('❌ Error updating node count:', error.message);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    // Lấy trạng thái của managed nodes
+    getManagedNodesStatus() {
+        const managedStatus = {};
+        this.managedNodes.forEach((nodeInfo, nodeId) => {
+            managedStatus[nodeId] = {
+                port: nodeInfo.port,
+                startTime: nodeInfo.startTime,
+                uptime: Date.now() - nodeInfo.startTime,
+                status: nodeInfo.status,
+                pid: nodeInfo.process.pid,
+                isRegistered: this.nodes.has(nodeId)
+            };
+        });
+        return managedStatus;
     }
     
     // Tự động phân chia data cho nodes dựa trên database size
@@ -86,6 +244,11 @@ class DistributedSearchCoordinator {
             averageResponseTime: 0,
             lastSeen: Date.now()
         });
+        
+        // Update managed node status if it exists
+        if (this.managedNodes.has(nodeId)) {
+            this.managedNodes.get(nodeId).status = 'registered';
+        }
         
         // Tự động phân chia lại data cho tất cả nodes
         this.redistributeData();
@@ -273,7 +436,9 @@ class DistributedSearchCoordinator {
             healthyNodes: this.getHealthyNodes().length,
             totalNodes: this.nodes.size,
             totalDataSize: this.totalDataSize,
-            databaseStatus: databaseManager.isReady() ? 'connected' : 'disconnected'
+            databaseStatus: databaseManager.isReady() ? 'connected' : 'disconnected',
+            managedNodes: this.getManagedNodesStatus(),
+            targetNodeCount: this.targetNodeCount
         };
     }
     
@@ -357,8 +522,34 @@ app.get('/api/nodes', (req, res) => {
     res.json({
         nodes: stats.nodes,
         healthyNodes: stats.healthyNodes,
-        totalNodes: stats.totalNodes
+        totalNodes: stats.totalNodes,
+        managedNodes: stats.managedNodes,
+        targetNodeCount: stats.targetNodeCount
     });
+});
+
+// Node management APIs
+app.post('/api/nodes/update-count', async (req, res) => {
+    try {
+        const { nodeCount } = req.body;
+        
+        if (!nodeCount || nodeCount < 0 || nodeCount > 10) {
+            return res.status(400).json({ 
+                error: 'Invalid node count',
+                message: 'Node count must be between 0 and 10'
+            });
+        }
+        
+        const result = await coordinator.updateNodeCount(parseInt(nodeCount));
+        res.json(result);
+        
+    } catch (error) {
+        console.error('Update node count error:', error);
+        res.status(500).json({ 
+            error: 'Failed to update node count',
+            message: error.message
+        });
+    }
 });
 
 app.get('/api/database/health', async (req, res) => {
@@ -381,7 +572,9 @@ app.get('/health', (req, res) => {
         status: 'healthy',
         type: 'coordinator',
         uptime: process.uptime(),
-        database: databaseManager.isReady() ? 'connected' : 'disconnected'
+        database: databaseManager.isReady() ? 'connected' : 'disconnected',
+        managedNodes: coordinator.managedNodes.size,
+        registeredNodes: coordinator.nodes.size
     });
 });
 
@@ -399,6 +592,7 @@ async function startCoordinator() {
             console.log(`📊 Dashboard: http://localhost:${PORT}`);
             console.log(`🔧 API Status: http://localhost:${PORT}/api/status`);
             console.log(`🗄️ Database Health: http://localhost:${PORT}/api/database/health`);
+            console.log(`🎛️ Node Management: http://localhost:${PORT}/api/nodes/update-count`);
         });
         
         // Làm mới database stats mỗi 5 phút
@@ -416,9 +610,15 @@ async function startCoordinator() {
 process.on('SIGINT', async () => {
     console.log('🛑 Shutting down coordinator...');
     try {
+        // Kill all managed nodes
+        console.log('🛑 Killing all managed nodes...');
+        for (const [nodeId, nodeInfo] of coordinator.managedNodes) {
+            await coordinator.killSearchNode(nodeId);
+        }
+        
         await databaseManager.close();
     } catch (error) {
-        console.error('Error closing database:', error.message);
+        console.error('Error during shutdown:', error.message);
     }
     process.exit(0);
 });
