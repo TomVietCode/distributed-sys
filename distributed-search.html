@@ -161,21 +161,7 @@
         }
 
         .worker-selector {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .worker-selector label {
-            font-size: 14px;
-            color: var(--light-text);
-        }
-
-        .worker-selector select {
-            padding: 4px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            font-size: 14px;
+            display: none; /* Hide since we're using backend nodes */
         }
 
         .search-instructions {
@@ -285,7 +271,7 @@
             background-color: var(--highlight-color);
         }
 
-        #suggestions div .worker-badge {
+        #suggestions div .node-badge {
             position: absolute;
             right: 10px;
             top: 50%;
@@ -368,10 +354,6 @@
                 flex-direction: column;
                 align-items: stretch;
             }
-
-            .worker-selector {
-                justify-content: center;
-            }
         }
     </style>
 </head>
@@ -394,18 +376,9 @@
                         <span class="toggle-label">Gợi ý tự động</span>
                     </label>
                     <label class="toggle-container">
-                        <input type="checkbox" id="showWorkerInfo" class="toggle-checkbox" checked>
-                        <span class="toggle-label">Hiển thị worker</span>
+                        <input type="checkbox" id="showNodeInfo" class="toggle-checkbox" checked>
+                        <span class="toggle-label">Hiển thị node</span>
                     </label>
-                </div>
-                <div class="worker-selector">
-                    <label for="workerCount">Số Workers:</label>
-                    <select id="workerCount">
-                        <option value="2">2 Workers</option>
-                        <option value="4" selected>4 Workers</option>
-                        <option value="6">6 Workers</option>
-                        <option value="8">8 Workers</option>
-                    </select>
                 </div>
             </div>
             <div class="search-instructions">
@@ -417,8 +390,8 @@
         <div class="status-panel">
             <div class="status-grid">
                 <div class="status-item">
-                    <div class="status-value" id="status-workers">0/0</div>
-                    <div class="status-label">Workers Active</div>
+                    <div class="status-value" id="status-nodes">0/0</div>
+                    <div class="status-label">Search Nodes</div>
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-data">0</div>
@@ -437,7 +410,7 @@
                     <div class="status-label">Last Search</div>
                 </div>
                 <div class="status-item">
-                    <div class="status-value" id="status-system">Initializing...</div>
+                    <div class="status-value" id="status-system">Connecting...</div>
                     <div class="status-label">System Status</div>
                 </div>
             </div>
@@ -456,40 +429,34 @@
         <div id="messages"></div>
         
         <div class="search-status">
-            Hệ thống tìm kiếm phân tán với FlexSearch - Sử dụng Web Workers để xử lý song song
+            Hệ thống tìm kiếm phân tán với FlexSearch - Sử dụng Coordinator/Node pattern
         </div>
     </div>
 
-    <script type="module">
-        import { DistributedSearchManager } from './distributed-search-manager.js';
+    <script>
+        // Configuration
+        const COORDINATOR_BASE_URL = 'http://localhost:3000';
         
-        // Import movie data
-        const movieDataResponse = await fetch('./data/movies.js');
-        const movieDataText = await movieDataResponse.text();
-        // Extract array from module.exports format
-        const movieData = eval(movieDataText.replace('module.exports = ', ''));
-
-        // Initialize distributed search manager
-        let searchManager = null;
+        // State variables
         let searchTimeout = null;
         let results = [];
         let iterate = 0;
-        let isInitializing = false;
+        let systemStats = null;
+        let isSystemReady = false;
 
         // DOM elements
         const suggestions = document.getElementById("suggestions");
         const autocomplete = document.getElementById("autocomplete");
         const userinput = document.getElementById("userinput");
         const suggest = document.getElementById("suggest");
-        const showWorkerInfo = document.getElementById("showWorkerInfo");
-        const workerCount = document.getElementById("workerCount");
+        const showNodeInfo = document.getElementById("showNodeInfo");
         const select_prev = document.getElementById("select-prev");
         const select_next = document.getElementById("select-next");
         const loading = document.getElementById("loading");
         const messages = document.getElementById("messages");
 
         // Status elements
-        const statusWorkers = document.getElementById("status-workers");
+        const statusNodes = document.getElementById("status-nodes");
         const statusData = document.getElementById("status-data");
         const statusSearches = document.getElementById("status-searches");
         const statusTime = document.getElementById("status-time");
@@ -500,14 +467,8 @@
         userinput.addEventListener("input", debounceSearch, true);
         userinput.addEventListener("keyup", accept_autocomplete, true);
         userinput.addEventListener("keydown", iterate_selected, true);
-        suggest.addEventListener("change", () => {
-            if (searchManager) {
-                searchManager.index?.cache?.clear?.();
-            }
-            debounceSearch();
-        }, true);
+        suggest.addEventListener("change", debounceSearch, true);
         suggestions.addEventListener("click", accept_suggestion, true);
-        workerCount.addEventListener("change", reinitializeSystem, true);
 
         select_prev.addEventListener("focus", function(){
             iterate_selected({ key: "ArrowUp" });
@@ -519,52 +480,67 @@
             userinput.focus();
         }, true);
 
-        // Initialize system
-        async function initializeSystem() {
-            if (isInitializing) return;
-            
-            isInitializing = true;
-            updateStatus();
-            
+        // API functions
+        async function fetchSystemStatus() {
             try {
-                if (searchManager) {
-                    searchManager.destroy();
+                const response = await fetch(`${COORDINATOR_BASE_URL}/api/status`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-
-                const selectedWorkerCount = parseInt(workerCount.value);
-                searchManager = new DistributedSearchManager({
-                    workerCount: selectedWorkerCount,
-                    searchTimeout: 5000
-                });
-
-                showMessage('Đang khởi tạo hệ thống phân tán...', 'info');
                 
-                await searchManager.initialize(movieData);
+                const data = await response.json();
+                systemStats = data.stats;
+                isSystemReady = data.status === 'coordinator-ready';
                 
-                showMessage(`Hệ thống đã sẵn sàng với ${selectedWorkerCount} workers!`, 'success');
-                updateStatus();
+                updateStatusDisplay();
+                
+                if (isSystemReady && systemStats.healthyNodes > 0) {
+                    showMessage(`Hệ thống sẵn sàng với ${systemStats.healthyNodes} search nodes!`, 'success');
+                }
                 
             } catch (error) {
-                console.error('Initialization failed:', error);
-                showMessage(`Lỗi khởi tạo: ${error.message}`, 'error');
-                updateStatus();
-            } finally {
-                isInitializing = false;
+                console.error('Failed to fetch system status:', error);
+                showMessage(`Không thể kết nối với coordinator: ${error.message}`, 'error');
+                isSystemReady = false;
+                updateStatusDisplay();
             }
         }
 
-        // Reinitialize system when worker count changes
-        async function reinitializeSystem() {
-            await initializeSystem();
+        async function performDistributedSearch(query, options = {}) {
+            try {
+                const response = await fetch(`${COORDINATOR_BASE_URL}/api/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        options: {
+                            ...options,
+                            limit: 25
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const searchResult = await response.json();
+                return searchResult;
+                
+            } catch (error) {
+                console.error('Search failed:', error);
+                throw error;
+            }
         }
 
-        // Debounced search
+        // Search functions
         function debounceSearch() {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(performSearch, 300);
         }
 
-        // Perform distributed search
         async function performSearch() {
             const query = userinput.value.trim();
             
@@ -573,10 +549,12 @@
                 return;
             }
 
-            if (!searchManager || !searchManager.isInitialized) {
-                showMessage('Hệ thống chưa sẵn sàng, đang khởi tạo...', 'info');
-                await initializeSystem();
-                return;
+            if (!isSystemReady) {
+                showMessage('Hệ thống chưa sẵn sàng, đang kết nối...', 'info');
+                await fetchSystemStatus();
+                if (!isSystemReady) {
+                    return;
+                }
             }
 
             try {
@@ -584,15 +562,13 @@
                 
                 const searchOptions = {
                     suggest: suggest.checked,
-                    limit: 25,
-                    highlight: "<b>$1</b>",
-                    query: query
+                    limit: 25
                 };
 
-                const searchResult = await searchManager.search(query, searchOptions);
+                const searchResult = await performDistributedSearch(query, searchOptions);
                 
                 displayResults(searchResult);
-                updateStatus(searchResult);
+                updateStatusDisplay(searchResult);
                 
             } catch (error) {
                 console.error('Search failed:', error);
@@ -603,9 +579,9 @@
             }
         }
 
-        // Display search results
+        // Display functions
         function displayResults(searchResult) {
-            results = searchResult.results;
+            results = searchResult.results || [];
             
             let entry, childs = suggestions.childNodes;
             let i = 0, len = results.length;
@@ -619,10 +595,20 @@
                 }
 
                 const result = results[i];
-                entry.innerHTML = result.highlight;
                 
-                if (showWorkerInfo.checked && result.fromWorker) {
-                    entry.innerHTML += `<span class="worker-badge">${result.fromWorker}</span>`;
+                // Highlight search term in title
+                const query = userinput.value.trim();
+                let highlightedTitle = result.title;
+                if (query) {
+                    const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+                    highlightedTitle = result.title.replace(regex, '<b>$1</b>');
+                }
+                
+                entry.innerHTML = highlightedTitle;
+                
+                // Add node badge if enabled
+                if (showNodeInfo.checked && result.sourceNode) {
+                    entry.innerHTML += `<span class="node-badge">${result.sourceNode}</span>`;
                 }
             }
 
@@ -634,38 +620,38 @@
             iterate_selected();
         }
 
-        // Update status display
-        function updateStatus(searchResult = null) {
-            if (searchManager) {
-                const stats = searchManager.getStats();
-                statusWorkers.textContent = `${stats.workerCount}/${stats.workerCount}`;
-                statusData.textContent = stats.dataSize.toLocaleString();
-                statusSearches.textContent = stats.totalSearches;
-                statusTime.textContent = `${stats.averageSearchTime.toFixed(1)}ms`;
+        function updateStatusDisplay(searchResult = null) {
+            if (systemStats) {
+                statusNodes.textContent = `${systemStats.healthyNodes}/${systemStats.totalNodes}`;
+                statusData.textContent = systemStats.totalDataSize?.toLocaleString() || '0';
+                statusSearches.textContent = systemStats.totalRequests || '0';
+                statusTime.textContent = `${(systemStats.averageResponseTime || 0).toFixed(1)}ms`;
                 
                 if (searchResult) {
-                    statusLastSearch.textContent = `${searchResult.totalTime.toFixed(1)}ms`;
+                    statusLastSearch.textContent = `${(searchResult.totalTime || 0).toFixed(1)}ms`;
                 }
                 
-                if (stats.isInitialized) {
+                if (isSystemReady && systemStats.healthyNodes > 0) {
                     statusSystem.textContent = "Ready";
                     statusSystem.style.color = "var(--accent-color)";
+                } else if (isSystemReady) {
+                    statusSystem.textContent = "No Nodes";
+                    statusSystem.style.color = "var(--warning-color)";
                 } else {
-                    statusSystem.textContent = isInitializing ? "Initializing..." : "Not Ready";
-                    statusSystem.style.color = isInitializing ? "var(--secondary-color)" : "var(--warning-color)";
+                    statusSystem.textContent = "Connecting...";
+                    statusSystem.style.color = "var(--secondary-color)";
                 }
             } else {
-                statusWorkers.textContent = "0/0";
+                statusNodes.textContent = "0/0";
                 statusData.textContent = "0";
                 statusSearches.textContent = "0";
                 statusTime.textContent = "0ms";
                 statusLastSearch.textContent = "0ms";
-                statusSystem.textContent = "Not Initialized";
+                statusSystem.textContent = "Disconnected";
                 statusSystem.style.color = "var(--warning-color)";
             }
         }
 
-        // Show message
         function showMessage(text, type = 'info') {
             const messageDiv = document.createElement('div');
             messageDiv.className = type === 'error' ? 'error-message' : 'success-message';
@@ -677,6 +663,11 @@
             setTimeout(() => {
                 messages.innerHTML = '';
             }, 5000);
+        }
+
+        // Utility functions
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
         // Navigation functions (same as original)
@@ -702,7 +693,7 @@
             }
 
             let value = userinput.value;
-            let first_result = results && results[index] && (results[index].originalTitle || results[index].title);
+            let first_result = results && results[index] && results[index].title;
             let match = first_result && first_result.toLowerCase().indexOf(value.toLowerCase());
 
             if(first_result && (match > -1)){
@@ -730,24 +721,31 @@
             if(key === 13 || key === 39) {
                 const node = suggestions.childNodes[iterate];
                 if(!node) return;
-                userinput.value = autocomplete.value = node.textContent.replace(/worker-\d+/g, '').trim();
+                userinput.value = autocomplete.value = node.textContent.replace(/[a-z]+-node-\d+/g, '').trim();
                 suggestions.textContent = "";
             }
         }
 
         function accept_suggestion(event){
             const target = (event || window.event).target;
-            userinput.value = autocomplete.value = target.textContent.replace(/worker-\d+/g, '').trim();
+            userinput.value = autocomplete.value = target.textContent.replace(/[a-z]+-node-\d+/g, '').trim();
             suggestions.textContent = "";
 
             return false;
         }
 
-        // Initialize system on load
+        // Initialize system
+        async function initializeSystem() {
+            showMessage('Đang kết nối với coordinator...', 'info');
+            await fetchSystemStatus();
+        }
+
+        // Start the application
         initializeSystem();
         
-        // Update status every second
-        setInterval(updateStatus, 1000);
+        // Update status every 3 seconds
+        setInterval(fetchSystemStatus, 3000);
     </script>
 </body>
+</html> 
 </html> 
