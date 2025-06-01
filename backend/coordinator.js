@@ -1,8 +1,10 @@
-// coordinator.js - Distributed Search Coordinator
+// coordinator.js - Distributed Search Coordinator với MySQL
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const axios = require('axios');
 const cors = require('cors');
+const { databaseManager } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,12 +12,12 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(cors());
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, '../')));
 
 class DistributedSearchCoordinator {
     constructor() {
         this.nodes = new Map();
-        this.totalDataSize = 26770; // Total movies count
+        this.totalDataSize = 0; // Sẽ được lấy từ database
         this.stats = {
             totalRequests: 0,
             averageResponseTime: 0,
@@ -23,10 +25,34 @@ class DistributedSearchCoordinator {
         };
         
         console.log('🌐 Distributed Search Coordinator starting...');
-        console.log(`📊 Total data size: ${this.totalDataSize} movies`);
     }
     
-    // Tự động phân chia data cho nodes
+    // Khởi tạo coordinator với database
+    async initialize() {
+        try {
+            console.log('🔄 Initializing coordinator with MySQL database...');
+            
+            // Khởi tạo database connection
+            await databaseManager.initialize();
+            
+            // Test database query
+            await databaseManager.testQuery();
+            
+            // Lấy tổng số bài hát từ database
+            this.totalDataSize = await databaseManager.getTotalCount();
+            console.log(`📊 Total songs in database: ${this.totalDataSize.toLocaleString()}`);
+            
+            return true;
+        } catch (error) {
+            console.error('❌ Coordinator initialization failed:', error.message);
+            
+            // Set default values on error
+            this.totalDataSize = 0;
+            throw error;
+        }
+    }
+    
+    // Tự động phân chia data cho nodes dựa trên database size
     redistributeData() {
         const nodeCount = this.nodes.size;
         if (nodeCount === 0) return;
@@ -34,18 +60,18 @@ class DistributedSearchCoordinator {
         const chunkSize = Math.ceil(this.totalDataSize / nodeCount);
         const nodeArray = Array.from(this.nodes.values());
         
-        console.log(`🔄 Redistributing data for ${nodeCount} nodes (chunk size: ~${chunkSize})`);
+        console.log(`🔄 Redistributing ${this.totalDataSize} songs for ${nodeCount} nodes (chunk size: ~${chunkSize})`);
         
         nodeArray.forEach((node, index) => {
             const start = index * chunkSize;
             const end = Math.min(start + chunkSize, this.totalDataSize);
             
             node.dataRange = { start, end };
-            console.log(`📊 ${node.id}: assigned data range ${start}-${end} (${end - start} movies)`);
+            console.log(`📊 ${node.id}: assigned data range ${start}-${end} (${end - start} songs)`);
         });
     }
     
-    // Đăng ký search node (không cần dataRange từ client)
+    // Đăng ký search node
     registerNode(nodeInfo) {
         const { nodeId, port } = nodeInfo;
         const nodeUrl = `http://localhost:${port}`;
@@ -71,7 +97,8 @@ class DistributedSearchCoordinator {
         return { 
             success: true, 
             message: `Node ${nodeId} registered successfully`,
-            dataRange: this.nodes.get(nodeId).dataRange
+            dataRange: this.nodes.get(nodeId).dataRange,
+            totalDataSize: this.totalDataSize
         };
     }
     
@@ -80,8 +107,9 @@ class DistributedSearchCoordinator {
         const notifications = Array.from(this.nodes.values()).map(async (node) => {
             try {
                 await axios.post(`${node.url}/update-data-range`, {
-                    dataRange: node.dataRange
-                }, { timeout: 5000 });
+                    dataRange: node.dataRange,
+                    totalDataSize: this.totalDataSize
+                }, { timeout: 50000 });
                 
                 console.log(`✅ Updated data range for ${node.id}: ${node.dataRange.start}-${node.dataRange.end}`);
             } catch (error) {
@@ -164,9 +192,9 @@ class DistributedSearchCoordinator {
                 const nodeResult = result.value;
                 successfulNodes.push(nodeResult);
                 
-                nodeResult.results.forEach(movie => {
+                nodeResult.results.forEach(song => {
                     allResults.push({
-                        ...movie,
+                        ...song,
                         sourceNode: nodeResult.nodeId,
                         nodeDataRange: nodeResult.dataRange
                     });
@@ -176,21 +204,21 @@ class DistributedSearchCoordinator {
             }
         });
         
-        // Sắp xếp results theo relevance
+        // Sắp xếp results theo relevance (song name)
         allResults.sort((a, b) => {
-            const titleA = (a.title || '').toLowerCase();
-            const titleB = (b.title || '').toLowerCase();
+            const nameA = (a.name || '').toLowerCase();
+            const nameB = (b.name || '').toLowerCase();
             const queryLower = query.toLowerCase();
             
             // Ưu tiên exact match
-            if (titleA.includes(queryLower) && !titleB.includes(queryLower)) return -1;
-            if (!titleA.includes(queryLower) && titleB.includes(queryLower)) return 1;
+            if (nameA.includes(queryLower) && !nameB.includes(queryLower)) return -1;
+            if (!nameA.includes(queryLower) && nameB.includes(queryLower)) return 1;
             
             // Ưu tiên starts with
-            if (titleA.startsWith(queryLower) && !titleB.startsWith(queryLower)) return -1;
-            if (!titleA.startsWith(queryLower) && titleB.startsWith(queryLower)) return 1;
+            if (nameA.startsWith(queryLower) && !nameB.startsWith(queryLower)) return -1;
+            if (!nameA.startsWith(queryLower) && nameB.startsWith(queryLower)) return 1;
             
-            return titleA.localeCompare(titleB);
+            return nameA.localeCompare(nameB);
         });
         
         // Apply limit
@@ -244,8 +272,26 @@ class DistributedSearchCoordinator {
             nodes: nodeStats,
             healthyNodes: this.getHealthyNodes().length,
             totalNodes: this.nodes.size,
-            totalDataSize: this.totalDataSize
+            totalDataSize: this.totalDataSize,
+            databaseStatus: databaseManager.isReady() ? 'connected' : 'disconnected'
         };
+    }
+    
+    // Làm mới thống kê database (gọi định kỳ)
+    async refreshDatabaseStats() {
+        try {
+            if (databaseManager.isReady()) {
+                const newTotalSize = await databaseManager.getTotalCount();
+                if (newTotalSize !== this.totalDataSize) {
+                    console.log(`📊 Database size changed: ${this.totalDataSize} → ${newTotalSize}`);
+                    this.totalDataSize = newTotalSize;
+                    this.redistributeData();
+                    this.notifyNodesDataRange();
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error refreshing database stats:', error.message);
+        }
     }
 }
 
@@ -253,12 +299,21 @@ class DistributedSearchCoordinator {
 const coordinator = new DistributedSearchCoordinator();
 
 // API Routes
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'coordinator-ready',
-        type: 'distributed-coordinator',
-        stats: coordinator.getSystemStatus()
-    });
+app.get('/api/status', async (req, res) => {
+    try {
+        const dbHealth = await databaseManager.healthCheck();
+        res.json({
+            status: 'coordinator-ready',
+            type: 'distributed-coordinator',
+            database: dbHealth,
+            stats: coordinator.getSystemStatus()
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'coordinator-error',
+            error: error.message
+        });
+    }
 });
 
 app.post('/api/search', async (req, res) => {
@@ -267,6 +322,13 @@ app.post('/api/search', async (req, res) => {
         
         if (!query || query.trim().length === 0) {
             return res.json({ results: [], totalTime: 0, message: 'Empty query' });
+        }
+        
+        if (!databaseManager.isReady()) {
+            return res.status(503).json({ 
+                error: 'Database not ready',
+                message: 'Database connection not established'
+            });
         }
         
         const searchResult = await coordinator.distributedSearch(query, options);
@@ -299,6 +361,15 @@ app.get('/api/nodes', (req, res) => {
     });
 });
 
+app.get('/api/database/health', async (req, res) => {
+    try {
+        const health = await databaseManager.healthCheck();
+        res.json(health);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Serve dashboard
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../distributed-search.html'));
@@ -309,19 +380,48 @@ app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
         type: 'coordinator',
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        database: databaseManager.isReady() ? 'connected' : 'disconnected'
     });
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Distributed Search Coordinator running on http://localhost:${PORT}`);
-    console.log(`📊 Dashboard: http://localhost:${PORT}`);
-    console.log(`🔧 API Status: http://localhost:${PORT}/api/status`);
-});
+// Khởi tạo và start server
+async function startCoordinator() {
+    try {
+        console.log('🚀 Starting Distributed Search Coordinator...');
+        
+        // Khởi tạo coordinator với database
+        await coordinator.initialize();
+        
+        // Start server
+        app.listen(PORT, () => {
+            console.log(`🚀 Distributed Search Coordinator running on http://localhost:${PORT}`);
+            console.log(`📊 Dashboard: http://localhost:${PORT}`);
+            console.log(`🔧 API Status: http://localhost:${PORT}/api/status`);
+            console.log(`🗄️ Database Health: http://localhost:${PORT}/api/database/health`);
+        });
+        
+        // Làm mới database stats mỗi 5 phút
+        setInterval(() => {
+            coordinator.refreshDatabaseStats();
+        }, 5 * 60 * 1000);
+        
+    } catch (error) {
+        console.error('❌ Failed to start coordinator:', error.message);
+        process.exit(1);
+    }
+}
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
     console.log('🛑 Shutting down coordinator...');
+    try {
+        await databaseManager.close();
+    } catch (error) {
+        console.error('Error closing database:', error.message);
+    }
     process.exit(0);
-}); 
+});
+
+// Start coordinator
+startCoordinator(); 

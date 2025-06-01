@@ -296,7 +296,7 @@
         }
 
         #suggestions:empty:before {
-            content: "Không tìm thấy kết quả phù hợp";
+            content: "Không tìm thấy bài hát phù hợp";
             font-size: 14px;
         }
 
@@ -360,12 +360,12 @@
 <body>
     <div class="container">
         <div class="search-header">
-            <h1 class="search-title">FlexSearch - Tìm kiếm phim phân tán</h1>
+            <h1 class="search-title">FlexSearch - Tìm kiếm bài hát phân tán</h1>
             <div class="search-form">
                 <div class="search-input-container">
                     <input type="text" id="select-prev" tabindex="1">
                     <input type="text" id="autocomplete" readonly>
-                    <input type="text" id="userinput" tabindex="2" placeholder="Nhập tên phim để tìm kiếm..." autocorrect="off" spellcheck="false" autocomplete="off" autofocus>
+                    <input type="text" id="userinput" tabindex="2" placeholder="Nhập tên bài hát để tìm kiếm..." autocorrect="off" spellcheck="false" autocomplete="off" autofocus>
                     <input type="text" id="select-next" tabindex="3">
                 </div>
             </div>
@@ -395,7 +395,7 @@
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-data">0</div>
-                    <div class="status-label">Movies Indexed</div>
+                    <div class="status-label">Songs Indexed</div>
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-searches">0</div>
@@ -429,7 +429,7 @@
         <div id="messages"></div>
         
         <div class="search-status">
-            Hệ thống tìm kiếm phân tán với FlexSearch - Sử dụng Coordinator/Node pattern
+            Hệ thống tìm kiếm bài hát phân tán với FlexSearch - Kết nối với MySQL database
         </div>
     </div>
 
@@ -596,15 +596,15 @@
 
                 const result = results[i];
                 
-                // Highlight search term in title
+                // Highlight search term in song name
                 const query = userinput.value.trim();
-                let highlightedTitle = result.title;
+                let highlightedName = result.name;
                 if (query) {
                     const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
-                    highlightedTitle = result.title.replace(regex, '<b>$1</b>');
+                    highlightedName = result.name.replace(regex, '<b>$1</b>');
                 }
                 
-                entry.innerHTML = highlightedTitle;
+                entry.innerHTML = highlightedName;
                 
                 // Add node badge if enabled
                 if (showNodeInfo.checked && result.sourceNode) {
@@ -693,7 +693,7 @@
             }
 
             let value = userinput.value;
-            let first_result = results && results[index] && results[index].title;
+            let first_result = results && results[index] && results[index].name;
             let match = first_result && first_result.toLowerCase().indexOf(value.toLowerCase());
 
             if(first_result && (match > -1)){
@@ -747,5 +747,4 @@
         setInterval(fetchSystemStatus, 3000);
     </script>
 </body>
-</html> 
 </html> 

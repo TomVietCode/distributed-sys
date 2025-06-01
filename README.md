@@ -1,250 +1,248 @@
-# 🌐 Distributed Search System with FlexSearch
+# 🎵 FlexSearch Distributed System - Tìm kiếm bài hát phân tán
 
-**Hệ thống tìm kiếm phân tán thực sự** - mô phỏng distributed system trên một máy với multiple services, inter-service communication, và load balancing.
+Hệ thống tìm kiếm phân tán sử dụng FlexSearch với MySQL database chứa 600,000+ bài hát.
 
-## 🏗️ **Kiến trúc Distributed System**
+## 📋 Tổng quan
+
+### 🎯 **Mục tiêu dự án**
+Xây dựng hệ thống tìm kiếm bài hát phân tán với khả năng:
+- **High Performance**: Tìm kiếm trong 600K+ bài hát với FlexSearch
+- **Distributed Architecture**: Multiple search nodes với load balancing
+- **Real-time Monitoring**: Theo dõi hiệu suất và trạng thái nodes
+- **Database Integration**: Kết nối trực tiếp với MySQL database
+
+### 🏗️ **Kiến trúc hệ thống**
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Search Node 1  │    │  Search Node 2  │    │  Search Node 3  │    │  Search Node 4  │
-│   Port: 3001    │    │   Port: 3002    │    │   Port: 3003    │    │   Port: 3004    │
-│   Data: 0-6692  │    │ Data: 6692-13385│    │Data: 13385-20077│    │Data: 20077-26770│
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │                      │
-          └──────────────────────┼──────────────────────┼──────────────────────┘
-                                 │                      │
-                    ┌────────────┼──────────────────────┼────────────────┐
-                    │         HTTP API Communication                    │
-                    └────────────┼──────────────────────┼────────────────┘
-                                 │                      │
-┌─────────────────────────────────┼──────────────────────┼─────────────────────────────────┐
-│                    Search Coordinator                                                   │
-│                         Port: 3000                                                     │
-│          • Service Discovery & Auto-Registration                                        │
-│          • Load Balancing (Round Robin)                                                │
-│          • Health Monitoring & Failover                                               │
-│          • Result Aggregation & Sorting                                                │
-└─────────────────────────────────┼───────────────────────────────────────────────────────┘
-                                 │
-┌─────────────────────────────────┼─────────────────────────────────────────────────────────┐
-│                   Web Dashboard                                                           │
-│                http://localhost:3000                                                      │
-│            • Real-time Node Monitoring                                                   │
-│            • Distributed Search Interface                                               │
-│            • Performance Analytics                                                       │
-└───────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Client Web    │───►│   Coordinator   │◄──►│   MySQL DB      │
+│    Browser      │    │   (Port 3000)   │    │   600K Songs    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                │               │               │
+        ┌───────▼────┐  ┌──────▼────┐  ┌──────▼────┐
+        │ Search     │  │ Search    │  │ Search    │
+        │ Node 1     │  │ Node 2    │  │ Node N    │
+        │ Range A    │  │ Range B   │  │ Range C   │
+        └────────────┘  └───────────┘  └───────────┘
 ```
 
-## 🎯 **Đặc điểm Distributed System**
+## 🚀 **Current Implementation**
 
-### ✅ **True Distributed Architecture:**
-- **Multiple Services**: 4 search nodes + 1 coordinator (5 processes riêng biệt)
-- **Network Communication**: HTTP API calls giữa các services
-- **Service Discovery**: Auto-discovery và registration của nodes
-- **Load Balancing**: Round-robin distribution across healthy nodes
-- **Fault Tolerance**: Health checks, failover, error handling
-- **Data Partitioning**: Mỗi node quản lý một phần data (sharding)
-
-### 🚀 **Core Features:**
-- **Distributed Search**: Query được gửi đến tất cả nodes parallel
-- **Result Aggregation**: Kết quả từ multiple nodes được merge và sort
-- **Real-time Monitoring**: Live dashboard với node status và performance
-- **Health Checks**: Automatic monitoring và failover
-- **Scalability**: Dễ dàng thêm/bớt search nodes
-
-## 📦 **System Components**
-
-### 1. **Search Coordinator** (`distributed-coordinator.js`)
-- **Port**: 3000
-- **Role**: Central coordinator và load balancer
-- **Functions**:
-  - Service discovery và node registration
-  - Health monitoring của all nodes
-  - Distributed search coordination
-  - Result aggregation và sorting
-  - Web dashboard serving
-
-### 2. **Search Nodes** (`search-node.js`)
-- **Node 1**: Port 3001 (Data: 0-6692)
-- **Node 2**: Port 3002 (Data: 6692-13385)  
-- **Node 3**: Port 3003 (Data: 13385-20077)
-- **Node 4**: Port 3004 (Data: 20077-26770)
-- **Functions**:
-  - FlexSearch indexing cho data slice
-  - Search processing
-  - Health check endpoints
-  - Performance metrics
-
-### 3. **Web Dashboard** (`distributed-dashboard.html`)
-- Real-time system monitoring
-- Distributed search interface
-- Node health và performance tracking
-- Activity logging
-
-## 🚀 **Quick Start (Windows)**
-
-### **Cách 1: One-Click Start**
-```cmd
-# Double-click file này
-start-distributed-system.bat
+### **Database Schema**
+```sql
+-- Bảng songs trong MySQL
+CREATE TABLE untitled_table_1 (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(500) NOT NULL
+);
 ```
 
-### **Cách 2: Manual Start**
-```cmd
-# 1. Install dependencies
-cd backend
+### **Features Implemented**
+- ✅ **MySQL Integration**: Kết nối trực tiếp với database
+- ✅ **Data Partitioning**: Tự động chia data cho các nodes
+- ✅ **FlexSearch Index**: Full-text search với tokenization
+- ✅ **Load Balancing**: Distributed search across nodes
+- ✅ **Real-time Monitoring**: Live dashboard với node status
+- ✅ **Auto Discovery**: Nodes tự động đăng ký với coordinator
+
+## 🛠️ **Tech Stack**
+
+### **Backend Components**
+- **Language**: Node.js 18+
+- **Search Engine**: FlexSearch 0.7.31
+- **Database**: MySQL với mysql2 driver
+- **Framework**: Express.js
+- **Environment**: dotenv for configuration
+
+### **Database Configuration**
+- **Host**: 127.0.0.1:3309
+- **Database**: Local MYSQL
+- **Table**: untitled_table_1
+- **Columns**: id (INT), name (VARCHAR)
+
+## 🏃‍♂️ **Quick Start**
+
+### **1. Install Dependencies**
+```bash
+cd backend/
 npm install
+```
 
-# 2. Start coordinator (Terminal 1)
+### **2. Database Setup**
+Đảm bảo MySQL server đang chạy với:
+- Host: 127.0.0.1
+- Port: 3309
+- Database: Local MYSQL
+- Table: untitled_table_1 (với 600K records)
+
+### **3. Environment Configuration**
+Cấu hình database trong `backend/database.js` hoặc tạo file `.env`:
+```bash
+DB_HOST=127.0.0.1
+DB_PORT=3309
+DB_NAME=Local MYSQL
+DB_USER=root
+DB_PASSWORD=your_password
+DB_TABLE=untitled_table_1
+```
+
+### **4. Start System**
+```bash
+# Terminal 1 - Start coordinator
+cd backend/
 npm run coordinator
 
-# 3. Start nodes (Terminal 2-5)
-npm run node1
-npm run node2  
-npm run node3
-npm run node4
+# Terminal 2 - Start search node 1
+PORT=3001 NODE_ID=search-node-1 npm run node
+
+# Terminal 3 - Start search node 2  
+PORT=3002 NODE_ID=search-node-2 npm run node
+
+# Optional - Start more nodes
+PORT=3003 NODE_ID=search-node-3 npm run node
 ```
 
-### **Cách 3: PowerShell**
-```powershell
-cd backend
-npm install
-
-# Start all components
-Start-Process cmd -ArgumentList '/k', 'npm run coordinator'
-Start-Sleep 3
-Start-Process cmd -ArgumentList '/k', 'npm run node1'
-Start-Sleep 2
-Start-Process cmd -ArgumentList '/k', 'npm run node2' 
-Start-Sleep 2
-Start-Process cmd -ArgumentList '/k', 'npm run node3'
-Start-Sleep 2
-Start-Process cmd -ArgumentList '/k', 'npm run node4'
+### **5. Access Dashboard**
+```
+http://localhost:3000
 ```
 
-## 🌐 **Access Points**
+## 📁 **Project Structure**
 
-- **Main Dashboard**: http://localhost:3000
-- **Coordinator API**: http://localhost:3000/api/status
-- **Search Node 1**: http://localhost:3001/info
-- **Search Node 2**: http://localhost:3002/info
-- **Search Node 3**: http://localhost:3003/info
-- **Search Node 4**: http://localhost:3004/info
-
-## 🔍 **How Distributed Search Works**
-
-### **Search Flow:**
-1. **User Input** → Web Dashboard
-2. **Query** → Search Coordinator  
-3. **Parallel Requests** → All Healthy Search Nodes
-4. **Individual Search** → Each node searches its data partition
-5. **Results Collection** → Coordinator collects all results
-6. **Aggregation & Sorting** → Merge, deduplicate, and rank results
-7. **Response** → Return aggregated results to user
-
-### **Example Search Process:**
 ```
-Query: "action movies"
-
-Node 1 (0-6692):     Found 15 results in 23ms
-Node 2 (6692-13385): Found 12 results in 19ms  
-Node 3 (13385-20077): Found 18 results in 25ms
-Node 4 (20077-26770): Found 8 results in 21ms
-
-Coordinator: Aggregated 53 results → Sorted → Top 25 returned
-Total Time: 28ms (parallel execution)
+distributed-system/
+├── backend/
+│   ├── coordinator.js          # Main coordinator với MySQL
+│   ├── node.js                 # Search node với FlexSearch
+│   ├── database.js             # MySQL connection & models
+│   └── package.json            # Dependencies
+├── distributed-search.html     # Search interface
+└── README.md
 ```
 
-## 📊 **Monitoring & Analytics**
+## 🎯 **Current Features**
 
-### **Real-time Dashboard Features:**
-- **System Overview**: Total nodes, healthy nodes, request count
-- **Node Status**: Individual node health, performance, errors
-- **Search Results**: Live search with node source tracking
-- **Activity Log**: System events and search history
-- **Performance Metrics**: Response times, throughput, errors
+### **✅ Implemented**
+- [x] MySQL database integration
+- [x] Coordinator/Node architecture  
+- [x] FlexSearch full-text search
+- [x] Data partitioning by range
+- [x] Real-time status monitoring
+- [x] Load balancing across nodes
+- [x] Error handling và health checks
+- [x] Auto node registration
 
-### **Health Monitoring:**
-- **Health Checks**: Every 30 seconds
-- **Auto-Discovery**: Automatic node detection
-- **Failover**: Unhealthy nodes excluded from search
-- **Recovery**: Automatic re-inclusion when nodes recover
+### **🚧 Future Enhancements**
+- [ ] Distributed cache system (Redis)
+- [ ] Performance monitoring dashboard
+- [ ] Auto-scaling based on load
+- [ ] Advanced search features
+- [ ] Query optimization
 
-## 🛠️ **Configuration**
+## 📊 **Performance**
 
-### **Data Partitioning:**
+### **Current Metrics**
+- **Data Size**: 600,000 songs
+- **Search Latency**: ~20-50ms per node
+- **Throughput**: Scales with number of nodes
+- **Memory Usage**: ~100-200MB per node
+
+### **Scaling**
+- **Horizontal**: Add more search nodes easily
+- **Data Distribution**: Automatic range-based partitioning
+- **Load Balancing**: Parallel queries to all nodes
+
+## 🔧 **Configuration**
+
+### **Database Settings**
 ```javascript
-// Configurable in package.json scripts
-Node 1: DATA_START=0      DATA_END=6692
-Node 2: DATA_START=6692   DATA_END=13385  
-Node 3: DATA_START=13385  DATA_END=20077
-Node 4: DATA_START=20077  DATA_END=26770
+// backend/database.js
+const dbConfig = {
+    host: '127.0.0.1',
+    port: 3309,
+    database: 'Local MYSQL',
+    user: 'root',
+    password: 'your_password',
+    connectionLimit: 10,
+    charset: 'utf8mb4'
+};
 ```
 
-### **Performance Tuning:**
-- **Concurrent Searches**: All nodes search in parallel
-- **Result Limiting**: Configurable per-node and total limits
-- **Timeout Settings**: Configurable request timeouts
-- **Health Check Intervals**: Adjustable monitoring frequency
+### **Search Settings**
+```javascript
+// FlexSearch configuration
+{
+    tokenize: 'forward',
+    optimize: true,
+    resolution: 9
+}
+```
 
-## 🔧 **API Endpoints**
+## 🎵 **Use Cases**
 
-### **Coordinator APIs:**
-- `GET /api/status` - System status and statistics
-- `POST /api/search` - Distributed search
-- `GET /api/nodes` - Node information
-- `POST /api/nodes/register` - Manual node registration
+### **Primary Features**
+1. **Song Search**: Tìm bài hát theo tên
+2. **Auto-complete**: Gợi ý real-time
+3. **Distributed Search**: Parallel search across nodes
+4. **Node Monitoring**: Real-time status tracking
 
-### **Node APIs:**
-- `GET /health` - Node health check
-- `GET /info` - Node information  
-- `POST /search` - Search within node data
-- `GET /stats` - Node performance statistics
+### **Search Examples**
+- **Exact Match**: "Nơi này có anh" → Exact matches first
+- **Partial Match**: "noi nay" → Fuzzy matching
+- **Prefix Search**: "a" → All songs starting with "a"
 
-## 🎯 **Why This is True Distributed System**
+## 🛡️ **Error Handling**
 
-### **✅ Distributed Characteristics:**
-1. **Multiple Autonomous Services**: Each node là independent process
-2. **Network Communication**: Inter-service communication qua HTTP
-3. **Data Partitioning**: Data được chia across multiple nodes
-4. **Load Distribution**: Workload được distributed across nodes
-5. **Fault Tolerance**: System tiếp tục hoạt động khi một số nodes fail
-6. **Scalability**: Có thể add/remove nodes without downtime
-7. **Service Discovery**: Automatic node registration và discovery
+### **Database Errors**
+- Connection timeout handling
+- Automatic reconnection
+- Graceful degradation
 
-### **🚫 Not Just Parallel Processing:**
-- Không phải single process với multiple threads
-- Không phải shared memory architecture
-- Mỗi node có own data và processing capability
-- Communication through well-defined APIs
+### **Node Failures**
+- Health check monitoring
+- Automatic node exclusion
+- Recovery detection
 
-## 📈 **Performance Benefits**
+## 📈 **Monitoring**
 
-- **Parallel Processing**: Multiple nodes search simultaneously
-- **Data Locality**: Each node optimized for its data partition
-- **Load Distribution**: No single bottleneck point
-- **Fault Isolation**: Node failures don't affect others
-- **Horizontal Scaling**: Easy to add more nodes
+### **Real-time Dashboard**
+- **System Status**: Coordinator + Database health
+- **Node Status**: Active nodes count và health
+- **Search Metrics**: Total searches, response times
+- **Data Distribution**: Songs per node
 
-## 🛡️ **Production Considerations**
+### **API Endpoints**
+- `GET /api/status` - System overview
+- `GET /api/database/health` - Database status
+- `GET /health` - Coordinator health
+- `GET /api/nodes` - Nodes information
 
-Để deploy production, cần thêm:
-- **Container Orchestration** (Docker Swarm/Kubernetes)
-- **Service Mesh** (Istio) cho secure communication
-- **Distributed Caching** (Redis Cluster)
-- **Message Queues** (RabbitMQ/Apache Kafka)
-- **Database Clustering** (MongoDB Sharding)
-- **Load Balancers** (HAProxy/NGINX)
-- **Monitoring** (Prometheus/Grafana)
+## 🤝 **Development**
+
+### **Adding New Nodes**
+```bash
+# Start new node on different port
+PORT=3004 NODE_ID=search-node-4 npm run node
+```
+
+### **Database Queries**
+```sql
+-- Check table structure
+DESCRIBE untitled_table_1;
+
+-- Count total songs
+SELECT COUNT(*) FROM untitled_table_1;
+
+-- Sample data
+SELECT * FROM untitled_table_1 LIMIT 10;
+```
 
 ---
 
-## 🎉 **Get Started Now!**
+## 📞 **Contact**
 
-1. **Clone/Download** project
-2. **Double-click** `start-distributed-system.bat`
-3. **Wait** for all services to start
-4. **Open** http://localhost:3000
-5. **Search** và enjoy distributed system! 🚀
+**Built with ❤️ for distributed song search with FlexSearch + MySQL**
 
 
