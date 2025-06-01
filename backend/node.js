@@ -1,9 +1,10 @@
-// node.js - Distributed Search Node với FlexSearch và MySQL
+// node.js - Distributed Search Node với FlexSearch, MySQL và Redis Cache
 require('dotenv').config();
 const express = require('express');
 const FlexSearch = require('flexsearch');
 const axios = require('axios');
 const { databaseManager } = require('./database');
+const { cacheManager } = require('./cache-manager');
 
 class DistributedSearchNode {
     constructor(nodeId, port) {
@@ -26,14 +27,21 @@ class DistributedSearchNode {
     // Khởi tạo database connection
     async initializeDatabase() {
         try {
-            console.log(`🔌 Node ${this.nodeId}: Connecting to MySQL database...`);
+            console.log(`🔌 Node ${this.nodeId}: Connecting to MySQL database and Redis cache...`);
             
             if (!databaseManager.isReady()) {
                 await databaseManager.initialize();
             }
             
-            // Test database query
-            await databaseManager.testQuery();
+            // Initialize Redis cache (optional)
+            try {
+                if (!cacheManager.isReady()) {
+                    await cacheManager.initialize();
+                }
+            } catch (cacheError) {
+                console.log(`⚠️ Node ${this.nodeId}: Cache initialization failed, continuing without cache`);
+            }
+            
             
             console.log(`✅ Node ${this.nodeId}: Database connection established`);
             return true;
@@ -94,10 +102,6 @@ class DistributedSearchNode {
             
             console.log(`✅ Node ${this.nodeId}: Loaded ${this.songs.length} songs from database`);
             
-            // Log sample data for debugging
-            if (this.songs.length > 0) {
-                console.log(`📄 Sample songs:`, this.songs.slice(0, 2).map(s => ({ id: s.id, name: s.name?.substring(0, 50) + '...' })));
-            }
             
         } catch (error) {
             console.error(`❌ Node ${this.nodeId} failed to load songs:`, error);
@@ -117,7 +121,6 @@ class DistributedSearchNode {
             index: [{
                 field: 'name',
                 tokenize: 'forward',
-                optimize: true,
                 resolution: 9
             }]
         });
@@ -134,113 +137,144 @@ class DistributedSearchNode {
         console.log(`✅ Node ${this.nodeId}: FlexSearch index created with ${this.songs.length} songs (range: ${this.dataRange.start}-${this.dataRange.end})`);
     }
     
-    // Tìm kiếm
+    // Tìm kiếm với Redis Cache
     async search(query, options = {}) {
         const startTime = performance.now();
         
         try {
-            if (!this.index) {
-                console.log(`⚠️ Node ${this.nodeId}: Index not ready yet`);
+            // Check cache first
+            const cachedResult = await cacheManager.getCachedSearchResults(query, this.nodeId, options);
+            if (cachedResult) {
+                const totalTime = performance.now() - startTime;
+                console.log(`💰 Node ${this.nodeId}: Cache HIT for "${query}" in ${totalTime.toFixed(2)}ms`);
+                
+                // Update stats for cache hit
+                this.stats.totalSearches++;
+                this.stats.averageResponseTime = ((this.stats.averageResponseTime * (this.stats.totalSearches - 1)) + totalTime) / this.stats.totalSearches;
+                
                 return {
-                    results: [],
-                    responseTime: 0,
-                    nodeId: this.nodeId,
-                    dataRange: this.dataRange,
-                    totalIndexed: 0
+                    ...cachedResult,
+                    responseTime: totalTime,
+                    fromCache: true
                 };
             }
-            
-            if (this.songs.length === 0) {
-                console.log(`⚠️ Node ${this.nodeId}: No data assigned yet`);
-                return {
-                    results: [],
-                    responseTime: 0,
-                    nodeId: this.nodeId,
-                    dataRange: this.dataRange,
-                    totalIndexed: 0
-                };
-            }
-            
-            console.log(`🔎 Node ${this.nodeId}: Searching for "${query}" in range ${this.dataRange.start}-${this.dataRange.end}`);
-            
-            const limit = options.limit || 25;
-            
-            // Thực hiện search với FlexSearch
-            const searchResults = await this.index.search(query, {
-                limit: limit * 2, // Lấy nhiều hơn để có thể filter
-                suggest: true
-            });
-            
-            const results = [];
-            
-            // Xử lý results
-            if (searchResults && searchResults.length > 0) {
-                for (const fieldResult of searchResults) {
-                    if (fieldResult.result) {
-                        for (const localId of fieldResult.result) {
-                            if (results.length >= limit) break;
-                            
-                            const song = this.songs[localId];
-                            if (song) {
-                                results.push({
-                                    id: song.id, // Database ID
-                                    name: song.name,
-                                    nodeId: this.nodeId,
-                                    dataRange: this.dataRange
-                                });
-                            }
+        } catch (cacheError) {
+            console.log(`⚠️ Node ${this.nodeId}: Cache check failed:`, cacheError.message);
+        }
+        
+        if (!this.index) {
+            console.log(`⚠️ Node ${this.nodeId}: Index not ready yet`);
+            return {
+                results: [],
+                responseTime: 0,
+                nodeId: this.nodeId,
+                dataRange: this.dataRange,
+                totalIndexed: 0,
+                fromCache: false
+            };
+        }
+        
+        if (this.songs.length === 0) {
+            console.log(`⚠️ Node ${this.nodeId}: No data assigned yet`);
+            return {
+                results: [],
+                responseTime: 0,
+                nodeId: this.nodeId,
+                dataRange: this.dataRange,
+                totalIndexed: 0,
+                fromCache: false
+            };
+        }
+        
+        console.log(`🔎 Node ${this.nodeId}: Searching for "${query}" in range ${this.dataRange.start}-${this.dataRange.end}`);
+        
+        const limit = options.limit || 25;
+        
+        // Thực hiện search với FlexSearch
+        const searchResults = await this.index.search(query, {
+            limit: limit * 2, // Lấy nhiều hơn để có thể filter
+            suggest: true
+        });
+        
+        const results = [];
+        
+        // Xử lý results
+        if (searchResults && searchResults.length > 0) {
+            for (const fieldResult of searchResults) {
+                if (fieldResult.result) {
+                    for (const localId of fieldResult.result) {
+                        if (results.length >= limit) break;
+                        
+                        const song = this.songs[localId];
+                        if (song) {
+                            results.push({
+                                id: song.id, // Database ID
+                                name: song.name,
+                                nodeId: this.nodeId,
+                                dataRange: this.dataRange
+                            });
                         }
                     }
                 }
             }
-            
-            // Sắp xếp theo relevance
-            results.sort((a, b) => {
-                const nameA = a.name.toLowerCase();
-                const nameB = b.name.toLowerCase();
-                const queryLower = query.toLowerCase();
-                
-                // Exact match first
-                if (nameA.includes(queryLower) && !nameB.includes(queryLower)) return -1;
-                if (!nameA.includes(queryLower) && nameB.includes(queryLower)) return 1;
-                
-                // Starts with second
-                if (nameA.startsWith(queryLower) && !nameB.startsWith(queryLower)) return -1;
-                if (!nameA.startsWith(queryLower) && nameB.startsWith(queryLower)) return 1;
-                
-                return nameA.localeCompare(nameB);
-            });
-            
-            const endTime = performance.now();
-            const responseTime = endTime - startTime;
-            
-            // Cập nhật stats
-            this.stats.totalSearches++;
-            this.stats.averageResponseTime = ((this.stats.averageResponseTime * (this.stats.totalSearches - 1)) + responseTime) / this.stats.totalSearches;
-            
-            console.log(`✨ Node ${this.nodeId}: Found ${results.length} results in ${responseTime.toFixed(2)}ms`);
-            
-            return {
-                results: results.slice(0, limit),
-                responseTime: responseTime,
-                nodeId: this.nodeId,
-                dataRange: this.dataRange,
-                totalIndexed: this.songs.length
-            };
-            
-        } catch (error) {
-            const endTime = performance.now();
-            const responseTime = endTime - startTime;
-            
-            console.error(`❌ Node ${this.nodeId} search error:`, error);
-            
-            return {
-                results: [],
-                responseTime: responseTime,
-                nodeId: this.nodeId,
-                error: error.message
-            };
         }
+        
+        // Sắp xếp theo relevance
+        results.sort((a, b) => {
+            const nameA = a.name.toLowerCase();
+            const nameB = b.name.toLowerCase();
+            const queryLower = query.toLowerCase();
+            
+            // Exact match first
+            if (nameA.includes(queryLower) && !nameB.includes(queryLower)) return -1;
+            if (!nameA.includes(queryLower) && nameB.includes(queryLower)) return 1;
+            
+            // Starts with second
+            if (nameA.startsWith(queryLower) && !nameB.startsWith(queryLower)) return -1;
+            if (!nameA.startsWith(queryLower) && nameB.startsWith(queryLower)) return 1;
+            
+            return nameA.localeCompare(nameB);
+        });
+        
+        const endTime = performance.now();
+        const responseTime = endTime - startTime;
+        
+        // Cập nhật stats
+        this.stats.totalSearches++;
+        this.stats.averageResponseTime = ((this.stats.averageResponseTime * (this.stats.totalSearches - 1)) + responseTime) / this.stats.totalSearches;
+        
+        const searchResult = {
+            results: results.slice(0, limit),
+            responseTime: responseTime,
+            nodeId: this.nodeId,
+            dataRange: this.dataRange,
+            totalIndexed: this.songs.length,
+            fromCache: false
+        };
+        
+        // Cache the results (async, don't wait)
+        if (results.length > 0) {
+            cacheManager.cacheSearchResults(query, this.nodeId, searchResult, options)
+                .catch(error => console.log(`⚠️ Node ${this.nodeId}: Failed to cache:`, error.message));
+        }
+        
+        console.log(`✨ Node ${this.nodeId}: Found ${results.length} results in ${responseTime.toFixed(2)}ms`);
+        
+        return searchResult;
+        
+    } catch (error) {
+        const endTime = performance.now();
+        const responseTime = endTime - startTime;
+        
+        console.error(`❌ Node ${this.nodeId} search error:`, error);
+        
+        return {
+            results: [],
+            responseTime: responseTime,
+            nodeId: this.nodeId,
+            error: error.message,
+            fromCache: false
+        };
     }
     
     // Đăng ký với coordinator

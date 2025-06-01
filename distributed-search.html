@@ -335,12 +335,27 @@
             position: relative;
         }
 
+        /* Styling for suggestions (lighter appearance) */
+        #suggestions div.suggestion {
+            opacity: 0.75;
+            font-style: italic;
+            background-color: #f8f9fa;
+        }
+
+        /* Styling for full search results (normal appearance) */
+        #suggestions div.search-result {
+            opacity: 1;
+            font-weight: normal;
+            background-color: var(--background-color);
+        }
+
         #suggestions div:last-child {
             border-bottom: none;
         }
 
         #suggestions div:hover {
             background-color: var(--highlight-color);
+            opacity: 1 !important;
         }
 
         #suggestions div .node-badge {
@@ -432,7 +447,7 @@
 <body>
     <div class="container">
         <div class="search-header">
-            <h1 class="search-title">FlexSearch - Tìm kiếm bài hát phân tán</h1>
+            <h1 class="search-title">FlexSearch - Tìm kiếm bài hát</h1>
             <div class="search-form">
                 <div class="search-input-container">
                     <input type="text" id="select-prev" tabindex="1">
@@ -468,7 +483,7 @@
             </div>
             <div id="nodeManagementStatus" class="node-management-status" style="display: none;"></div>
             <div class="search-instructions">
-                Điều hướng bằng <kbd>↑</kbd> <kbd>↓</kbd> và chọn bằng <kbd>Enter</kbd> hoặc <kbd>→</kbd>
+                📝 <strong>Hướng dẫn:</strong> Nhập để xem gợi ý • Bấm <kbd>Enter</kbd> để tìm kiếm • Điều hướng <kbd>↑</kbd> <kbd>↓</kbd> • Chọn <kbd>→</kbd>
             </div>
         </div>
 
@@ -477,19 +492,23 @@
             <div class="status-grid">
                 <div class="status-item">
                     <div class="status-value" id="status-nodes">0/0</div>
-                    <div class="status-label">Search Nodes</div>
+                    <div class="status-label">Nodes Hoạt Động</div>
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-data">0</div>
-                    <div class="status-label">Songs Indexed</div>
+                    <div class="status-label">Bài Hát</div>
                 </div>
                 <div class="status-item">
                     <div class="status-value" id="status-time">0ms</div>
-                    <div class="status-label">Average Time</div>
+                    <div class="status-label">Lần Tìm Kiếm Này</div>
                 </div>
                 <div class="status-item">
-                    <div class="status-value" id="status-system">Connecting...</div>
-                    <div class="status-label">System Status</div>
+                    <div class="status-value" id="status-system">Đang kết nối...</div>
+                    <div class="status-label">Trạng thái hệ thống</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-value" id="status-cache">Không kết nối</div>
+                    <div class="status-label">Redis Cache</div>
                 </div>
             </div>
         </div>
@@ -512,26 +531,34 @@
     </div>
 
     <script>
-        // Configuration
-        const COORDINATOR_BASE_URL = 'http://localhost:3000';
-        
-        // State variables
-        let searchTimeout = null;
+        // Global variables
         let results = [];
         let iterate = 0;
+        let searchTimeout;
+        let suggestionTimeout;
         let systemStats = null;
         let isSystemReady = false;
         let isUpdatingNodes = false;
+        
+        // Add variables for search timing (keep for potential future use)
+        let searchTimes = [];
+        let totalSearches = 0;
+        let currentSearchTime = 0; // Current search time instead of average
+        
+        // Add variables to prevent duplicate status messages
+        let lastSystemMessage = '';
+        let lastHealthyNodeCount = 0;
+
+        const COORDINATOR_BASE_URL = 'http://localhost:3000';
 
         // DOM elements
-        const suggestions = document.getElementById("suggestions");
-        const autocomplete = document.getElementById("autocomplete");
         const userinput = document.getElementById("userinput");
+        const autocomplete = document.getElementById("autocomplete");
+        const suggestions = document.getElementById("suggestions");
         const suggest = document.getElementById("suggest");
         const showNodeInfo = document.getElementById("showNodeInfo");
         const nodeCount = document.getElementById("nodeCount");
         const updateNodesBtn = document.getElementById("updateNodesBtn");
-        const nodeManagementStatus = document.getElementById("nodeManagementStatus");
         const select_prev = document.getElementById("select-prev");
         const select_next = document.getElementById("select-next");
         const loading = document.getElementById("loading");
@@ -542,12 +569,13 @@
         const statusData = document.getElementById("status-data");
         const statusTime = document.getElementById("status-time");
         const statusSystem = document.getElementById("status-system");
+        const statusCache = document.getElementById("status-cache");
 
-        // Event listeners
-        userinput.addEventListener("input", debounceSearch, true);
-        userinput.addEventListener("keyup", accept_autocomplete, true);
+        // Event listeners - Updated for new search behavior
+        userinput.addEventListener("input", debounceSuggestions, true);
+        userinput.addEventListener("keyup", handleKeyUp, true);
         userinput.addEventListener("keydown", iterate_selected, true);
-        suggest.addEventListener("change", debounceSearch, true);
+        suggest.addEventListener("change", debounceSuggestions, true);
         suggestions.addEventListener("click", accept_suggestion, true);
         updateNodesBtn.addEventListener("click", updateNodeCount, true);
 
@@ -573,15 +601,36 @@
                 systemStats = data.stats;
                 isSystemReady = data.status === 'coordinator-ready';
                 
+                // Fetch cache stats
+                try {
+                    const cacheResponse = await fetch(`${COORDINATOR_BASE_URL}/api/cache/health`);
+                    if (cacheResponse.ok) {
+                        const cacheData = await cacheResponse.json();
+                        systemStats.cacheHealth = cacheData;
+                    }
+                } catch (cacheError) {
+                    console.log('Cache health check failed:', cacheError.message);
+                }
+                
                 updateStatusDisplay();
                 
+                // Only show ready message when status actually changes
                 if (isSystemReady && systemStats.healthyNodes > 0) {
-                    showMessage(`Hệ thống sẵn sàng với ${systemStats.healthyNodes} search nodes!`, 'success');
+                    const currentMessage = `Hệ thống sẵn sàng với ${systemStats.healthyNodes} search nodes!`;
+                    if (currentMessage !== lastSystemMessage || systemStats.healthyNodes !== lastHealthyNodeCount) {
+                        showMessage(currentMessage, 'success');
+                        lastSystemMessage = currentMessage;
+                        lastHealthyNodeCount = systemStats.healthyNodes;
+                    }
                 }
                 
             } catch (error) {
                 console.error('Failed to fetch system status:', error);
-                showMessage(`Không thể kết nối với coordinator: ${error.message}`, 'error');
+                const errorMessage = `Không thể kết nối với coordinator: ${error.message}`;
+                if (errorMessage !== lastSystemMessage) {
+                    showMessage(errorMessage, 'error');
+                    lastSystemMessage = errorMessage;
+                }
                 isSystemReady = false;
                 updateStatusDisplay();
             }
@@ -589,6 +638,8 @@
 
         async function performDistributedSearch(query, options = {}) {
             try {
+                const startTime = performance.now();
+                
                 const response = await fetch(`${COORDINATOR_BASE_URL}/api/search`, {
                     method: 'POST',
                     headers: {
@@ -608,21 +659,75 @@
                 }
 
                 const searchResult = await response.json();
+                
+                // Calculate real client-side timing
+                const endTime = performance.now();
+                const clientTime = endTime - startTime;
+                
+                // Update search timing statistics
+                updateSearchTiming(clientTime);
+                
+                // Add client timing to result
+                searchResult.clientTime = clientTime;
+                
                 return searchResult;
                 
             } catch (error) {
-                console.error('Search failed:', error);
+                console.error('Lỗi tìm kiếm:', error);
                 throw error;
             }
         }
 
-        // Search functions
-        function debounceSearch() {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(performSearch, 300);
+        // New function to handle key events - Enter triggers search
+        function handleKeyUp(event) {
+            const key = event.key;
+            
+            if (key === "Enter") {
+                // Perform actual search on Enter
+                performActualSearch();
+            } else if (key !== "ArrowUp" && key !== "ArrowDown") {
+                // Handle autocomplete for other keys
+                accept_autocomplete(event);
+            }
         }
 
-        async function performSearch() {
+        // New function for suggestion-only search (no full search)
+        function debounceSuggestions() {
+            clearTimeout(suggestionTimeout);
+            suggestionTimeout = setTimeout(showSuggestions, 300);
+        }
+
+        // Show suggestions only (fast, local-like behavior)
+        async function showSuggestions() {
+            const query = userinput.value.trim();
+            
+            if (!query) {
+                suggestions.innerHTML = "";
+                return;
+            }
+
+            if (!isSystemReady) {
+                return;
+            }
+
+            try {
+                // Quick suggestion search with minimal results
+                const searchOptions = {
+                    suggest: true,
+                    limit: 10  // Fewer results for faster suggestions
+                };
+
+                const searchResult = await performDistributedSearch(query, searchOptions);
+                displaySuggestions(searchResult);
+                
+            } catch (error) {
+                console.error('Suggestions failed:', error);
+                // Don't show error for suggestions, just fail silently
+            }
+        }
+
+        // Actual search function (triggered by Enter)
+        async function performActualSearch() {
             const query = userinput.value.trim();
             
             if (!query) {
@@ -660,7 +765,52 @@
             }
         }
 
-        // Display functions
+        // Function to update search timing statistics
+        function updateSearchTiming(newTime) {
+            totalSearches++;
+            searchTimes.push(newTime);
+            
+            // Keep only last 20 search times for potential future use
+            if (searchTimes.length > 20) {
+                searchTimes.shift();
+            }
+            
+            // Store current search time instead of calculating average
+            currentSearchTime = newTime;
+        }
+
+        // Display suggestions (minimal display, no status update)
+        function displaySuggestions(searchResult) {
+            results = searchResult.results || [];
+            
+            let entry, childs = suggestions.childNodes;
+            let i = 0, len = Math.min(results.length, 8); // Limit suggestions to 8 items
+
+            for(; i < len; i++){
+                entry = childs[i];
+
+                if(!entry){
+                    entry = document.createElement("div");
+                    suggestions.appendChild(entry);
+                }
+
+                const result = results[i];
+                entry.innerHTML = result.name;
+                entry.className = "suggestion"; // Add suggestion class
+                entry.style.opacity = "0.8"; // Make suggestions look different
+            }
+
+            while(childs.length > len){
+                suggestions.removeChild(childs[len]);
+            }
+
+            // Don't auto-select for suggestions
+            if (len > 0) {
+                select_result(0);
+            }
+        }
+
+        // Display full search results
         function displayResults(searchResult) {
             results = searchResult.results || [];
             
@@ -686,6 +836,8 @@
                 }
                 
                 entry.innerHTML = highlightedName;
+                entry.className = "search-result"; // Add search result class
+                entry.style.opacity = "1"; // Full opacity for real results
                 
                 // Add node badge if enabled
                 if (showNodeInfo.checked && result.sourceNode) {
@@ -706,10 +858,25 @@
                 // Update basic stats
                 statusNodes.textContent = `${systemStats.healthyNodes}/${systemStats.totalNodes}`;
                 statusData.textContent = systemStats.totalDataSize?.toLocaleString() || '0';
-                statusTime.textContent = `${(systemStats.averageResponseTime || 0).toFixed(1)}ms`;
                 
+                // Use current search time instead of average
                 if (searchResult) {
-                    statusTime.textContent = `${(searchResult.totalTime || 0).toFixed(1)}ms`;
+                    // Prioritize showing the actual search time from this specific search
+                    const displayTime = searchResult.clientTime || searchResult.totalTime || currentSearchTime || 0;
+                    statusTime.textContent = `${displayTime.toFixed(1)}ms`;
+                    
+                    // Add search count indicator
+                    if (totalSearches > 0) {
+                        statusTime.title = `Lần tìm kiếm thứ ${totalSearches} - Thời gian: ${displayTime.toFixed(1)}ms`;
+                    }
+                } else if (currentSearchTime > 0) {
+                    // Show last search time if no new search result
+                    statusTime.textContent = `${currentSearchTime.toFixed(1)}ms`;
+                    statusTime.title = `Lần tìm kiếm gần nhất - Thời gian: ${currentSearchTime.toFixed(1)}ms`;
+                } else {
+                    // Fallback to system average if no search has been performed
+                    statusTime.textContent = `${(systemStats.averageResponseTime || 0).toFixed(1)}ms`;
+                    statusTime.title = 'Chưa có tìm kiếm nào - Hiển thị thời gian hệ thống';
                 }
                 
                 // Update system status
@@ -738,12 +905,27 @@
                     console.log(`Managed nodes: ${managedCount}, Registered nodes: ${systemStats.totalNodes}`);
                 }
                 
+                // Update cache status
+                if (systemStats.cacheHealth) {
+                    if (systemStats.cacheHealth.connected) {
+                        statusCache.textContent = "Connected";
+                        statusCache.style.color = "var(--accent-color)";
+                    } else {
+                        statusCache.textContent = "Disconnected";
+                        statusCache.style.color = "var(--warning-color)";
+                    }
+                } else {
+                    statusCache.textContent = "Unknown";
+                    statusCache.style.color = "var(--light-text)";
+                }
+                
             } else {
                 statusNodes.textContent = "0/0";
                 statusData.textContent = "0";
                 statusTime.textContent = "0ms";
                 statusSystem.textContent = "Disconnected";
                 statusSystem.style.color = "var(--warning-color)";
+                statusCache.textContent = "Unknown";
             }
         }
 
@@ -755,9 +937,13 @@
             messages.innerHTML = '';
             messages.appendChild(messageDiv);
             
+            // Shorter timeout for success messages, longer for errors
+            const timeout = type === 'error' ? 7000 : 3000;
             setTimeout(() => {
-                messages.innerHTML = '';
-            }, 5000);
+                if (messages.contains(messageDiv)) {
+                    messages.removeChild(messageDiv);
+                }
+            }, timeout);
         }
 
         // Utility functions
@@ -838,8 +1024,8 @@
         // Start the application
         initializeSystem();
         
-        // Update status every 3 seconds
-        setInterval(fetchSystemStatus, 3000);
+        // Update status every 10 seconds (increased from 3 seconds to reduce flashing)
+        setInterval(fetchSystemStatus, 10000);
 
         // Node Management Functions
         async function updateNodeCount() {
@@ -875,8 +1061,10 @@
                         'success'
                     );
                     
-                    // Refresh system status
-                    await fetchSystemStatus();
+                    // Refresh system status immediately after node update
+                    setTimeout(async () => {
+                        await fetchSystemStatus();
+                    }, 1000);
                 } else {
                     throw new Error(result.error || 'Update failed');
                 }

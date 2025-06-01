@@ -1,4 +1,4 @@
-// coordinator.js - Distributed Search Coordinator với MySQL và Node Management
+// coordinator.js - Distributed Search Coordinator với MySQL, Node Management và Redis Cache
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -6,6 +6,7 @@ const axios = require('axios');
 const cors = require('cors');
 const { spawn } = require('child_process');
 const { databaseManager } = require('./database');
+const { cacheManager } = require('./cache-manager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,13 +37,17 @@ class DistributedSearchCoordinator {
     // Khởi tạo coordinator với database
     async initialize() {
         try {
-            console.log('🔄 Initializing coordinator with MySQL database...');
+            console.log('🔄 Initializing coordinator with MySQL database and Redis cache...');
             
             // Khởi tạo database connection
             await databaseManager.initialize();
             
-            // Test database query
-            await databaseManager.testQuery();
+            // Khởi tạo Redis cache 
+            try {
+                await cacheManager.initialize();
+            } catch (cacheError) {
+                console.log('⚠️ Cache initialization failed, continuing without cache');
+            }
             
             // Lấy tổng số bài hát từ database
             this.totalDataSize = await databaseManager.getTotalCount();
@@ -289,12 +294,33 @@ class DistributedSearchCoordinator {
         return Array.from(this.nodes.values()).filter(node => node.status === 'active');
     }
     
-    // Tìm kiếm phân tán
+    // Tìm kiếm phân tán với Redis Cache
     async distributedSearch(query, options = {}) {
         const startTime = performance.now();
         const searchId = `search-${Date.now()}`;
         
         console.log(`🔍 Distributed search: "${query}" (ID: ${searchId})`);
+        
+        // Check cache first
+        try {
+            const cachedResult = await cacheManager.getCachedDistributedResults(query, options);
+            if (cachedResult) {
+                const totalTime = performance.now() - startTime;
+                console.log(`💰 Cache HIT: "${query}" in ${totalTime.toFixed(2)}ms`);
+                
+                return {
+                    ...cachedResult,
+                    totalTime: totalTime,
+                    fromCache: true
+                };
+            }
+        } catch (cacheError) {
+            console.log('⚠️ Cache check failed, proceeding with search:', cacheError.message);
+        }
+
+        // === DEMO: Artificial delay for first-time searches ===
+        console.log(`🐌 Cache MISS: Simulating heavy database processing...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000)); // 1-2 second delay
         
         const healthyNodes = this.getHealthyNodes();
         if (healthyNodes.length === 0) {
@@ -405,9 +431,7 @@ class DistributedSearchCoordinator {
             this.stats.requestHistory = this.stats.requestHistory.slice(-50);
         }
         
-        console.log(`🏁 Search completed: ${finalResults.length} results in ${totalTime.toFixed(2)}ms from ${successfulNodes.length}/${healthyNodes.length} nodes`);
-        
-        return {
+        const searchResult = {
             results: finalResults,
             totalTime: totalTime,
             searchId: searchId,
@@ -416,8 +440,19 @@ class DistributedSearchCoordinator {
                 nodesSuccessful: successfulNodes.length,
                 nodesFailed: failedNodes.length,
                 nodeDetails: successfulNodes
-            }
+            },
+            fromCache: false
         };
+        
+        // Cache the results (async, don't wait)
+        if (finalResults.length > 0) {
+            cacheManager.cacheDistributedResults(query, searchResult, options)
+                .catch(error => console.log('⚠️ Failed to cache results:', error.message));
+        }
+        
+        console.log(`🏁 Search completed: ${finalResults.length} results in ${totalTime.toFixed(2)}ms from ${successfulNodes.length}/${healthyNodes.length} nodes`);
+        
+        return searchResult;
     }
     
     // Lấy trạng thái hệ thống
@@ -561,6 +596,116 @@ app.get('/api/database/health', async (req, res) => {
     }
 });
 
+// Cache management APIs
+app.get('/api/cache/health', async (req, res) => {
+    try {
+        const health = await cacheManager.healthCheck();
+        res.json(health);
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            status: 'error',
+            connected: false
+        });
+    }
+});
+
+app.get('/api/cache/stats', async (req, res) => {
+    try {
+        const stats = await cacheManager.getCacheStats();
+        res.json(stats);
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            connected: false 
+        });
+    }
+});
+
+app.get('/api/cache/hot-queries', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        const hotQueries = await cacheManager.getHotQueries(limit);
+        res.json({
+            hotQueries: hotQueries,
+            limit: limit,
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            hotQueries: []
+        });
+    }
+});
+
+app.delete('/api/cache/invalidate', async (req, res) => {
+    try {
+        const { pattern } = req.query;
+        
+        if (!pattern) {
+            // Invalidate all search cache
+            const success = await cacheManager.invalidateSearchCache();
+            return res.json({
+                success: success,
+                message: 'Search cache invalidated',
+                pattern: 'search:*'
+            });
+        }
+        
+        const success = await cacheManager.invalidatePattern(pattern);
+        res.json({
+            success: success,
+            message: `Cache invalidated for pattern: ${pattern}`,
+            pattern: pattern
+        });
+        
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
+// Thêm API endpoint mới
+app.delete('/api/demo/clear-cache', async (req, res) => {
+    try {
+        const success = await cacheManager.invalidateSearchCache();
+        console.log('🧹 Demo: Search cache cleared for demonstration');
+        res.json({
+            success: success,
+            message: 'Cache cleared - next searches will be slow again',
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            error: error.message,
+            success: false
+        });
+    }
+});
+
+app.get('/api/demo/cache-status/:query', async (req, res) => {
+    try {
+        const { query } = req.params;
+        const cachedResult = await cacheManager.getCachedDistributedResults(query, {});
+        
+        res.json({
+            query: query,
+            cached: !!cachedResult,
+            cacheAge: cachedResult ? Date.now() - (cachedResult.timestamp || 0) : 0,
+            message: cachedResult ? 'This query is cached - will be fast' : 'This query is not cached - will be slow first time'
+        });
+    } catch (error) {
+        res.json({
+            query: query,
+            cached: false,
+            error: error.message
+        });
+    }
+});
+
 // Serve dashboard
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../distributed-search.html'));
@@ -581,18 +726,12 @@ app.get('/health', (req, res) => {
 // Khởi tạo và start server
 async function startCoordinator() {
     try {
-        console.log('🚀 Starting Distributed Search Coordinator...');
-        
         // Khởi tạo coordinator với database
         await coordinator.initialize();
         
         // Start server
         app.listen(PORT, () => {
             console.log(`🚀 Distributed Search Coordinator running on http://localhost:${PORT}`);
-            console.log(`📊 Dashboard: http://localhost:${PORT}`);
-            console.log(`🔧 API Status: http://localhost:${PORT}/api/status`);
-            console.log(`🗄️ Database Health: http://localhost:${PORT}/api/database/health`);
-            console.log(`🎛️ Node Management: http://localhost:${PORT}/api/nodes/update-count`);
         });
         
         // Làm mới database stats mỗi 5 phút
@@ -616,7 +755,12 @@ process.on('SIGINT', async () => {
             await coordinator.killSearchNode(nodeId);
         }
         
-        await databaseManager.close();
+        // Close connections
+        await Promise.all([
+            databaseManager.close(),
+            cacheManager.close()
+        ]);
+        
     } catch (error) {
         console.error('Error during shutdown:', error.message);
     }

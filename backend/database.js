@@ -11,8 +11,6 @@ const dbConfig = {
     waitForConnections: true,
     connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
     queueLimit: 0,
-    acquireTimeout: parseInt(process.env.DB_ACQUIRE_TIMEOUT) || 60000,
-    timeout: parseInt(process.env.DB_TIMEOUT) || 60000,
     charset: 'utf8mb4'
 };
 
@@ -30,10 +28,7 @@ class DatabaseManager {
     async initialize() {
         try {
             console.log('🔌 Connecting to MySQL database...');
-            console.log(`📍 Host: ${dbConfig.host}:${dbConfig.port}`);
-            console.log(`🗄️ Database: ${dbConfig.database}`);
-            console.log(`📋 Table: ${tableName}`);
-            
+           
             this.pool = mysql.createPool(dbConfig);
             
             // Test connection
@@ -54,7 +49,6 @@ class DatabaseManager {
             const [columns] = await connection.execute(
                 `DESCRIBE ${tableName}`
             );
-            console.log(`📊 Table structure:`, columns.map(col => `${col.Field}(${col.Type})`).join(', '));
             
             connection.release();
             this.isConnected = true;
@@ -201,30 +195,6 @@ class DatabaseManager {
                 connected: false,
                 error: error.message
             };
-        }
-    }
-
-    // Test query để kiểm tra table structure
-    async testQuery() {
-        try {
-            if (!this.pool) {
-                throw new Error('Database not initialized');
-            }
-
-            console.log('🧪 Testing database query...');
-            
-            // Test simple query first
-            const [rows] = await this.pool.execute(
-                `SELECT id, name FROM ${tableName} LIMIT 5`
-            );
-            
-            console.log('✅ Test query successful:', rows.length, 'rows returned');
-            console.log('📄 Sample data:', rows.slice(0, 2));
-            
-            return rows;
-        } catch (error) {
-            console.error('❌ Test query failed:', error.message);
-            throw error;
         }
     }
 
